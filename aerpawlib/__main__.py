@@ -10,7 +10,7 @@ example:
 """
 
 from .runner import BasicRunner, StateMachine, _Runner
-from .vehicle import Vehicle
+from .vehicle import Drone
 
 import importlib
 import inspect
@@ -39,7 +39,8 @@ if __name__ == "__main__":
         runner = val()
 
     # here's where we add our hooks or whatever else we want
-    vehicle = Vehicle()
+    # TODO choose vehicle based on input flag
+    vehicle = Drone()
 
     # now run their code through our runner
     runner.run(vehicle)
