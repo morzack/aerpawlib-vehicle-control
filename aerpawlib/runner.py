@@ -1,5 +1,5 @@
 import inspect
-from typing import Callable, Dict
+from typing import Callable, Dict, List
 
 from .vehicle import _Vehicle
 
@@ -7,6 +7,12 @@ class _Runner:
     def run(self, _: _Vehicle):
         """
         Run the script that's been loaded in -- impl dependent
+        """
+        pass
+    
+    def initialize_args(self, _: List[str]):
+        """
+        Can be overridden to parse and handle extra args passed to the runner
         """
         pass
 
@@ -84,4 +90,3 @@ class StateMachine(_Runner):
 
     def stop(self):
         self._running = False
-        # TODO additionally provide recovery logic for the vehicle?

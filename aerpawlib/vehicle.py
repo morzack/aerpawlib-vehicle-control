@@ -24,14 +24,14 @@ class _Vehicle:
         self._has_heartbeat = False
         
         # can be pulled out to go elsewhere later
-        def _heartbeat_listener(_, _, value):
+        def _heartbeat_listener(_, __, value):
             if value > 1 and self._has_heartbeat:
                 self._has_heartbeat = False
             elif value < 1 and not self._has_heartbeat:
                 self._has_heartbeat = True
         self._vehicle.add_attribute_listener("last_heartbeat", _heartbeat_listener)
 
-        def _abort_listener(_, _, value):
+        def _abort_listener(_, __, value):
             if value != "GUIDED":
                 self._abort()
         self._vehicle.add_attribute_listener("mode", _abort_listener)
@@ -100,7 +100,7 @@ class _Vehicle:
             mavutil.mavlink.MAV_CMD_CONDITION_YAW,      # command
             0,                                          # confirmation
             heading,                                    # yaw angle in deg
-            0,                                          # yaw speed in deg (NOTE 0 -> we don't care)
+            10,                                         # yaw speed in deg TODO tune per vehicle?
             1 if turn_cw else -1,                       # direction to turn in (-1: ccw, 1: cw)
             0,                                          # never turn relative to our current heading
             0, 0, 0                                     # unused
@@ -117,7 +117,14 @@ class _Vehicle:
         """
         See if the vehicle is ready to move (i.e. if the last movement command is complete)
         """
-        return self._ready_to_move.__func__(self)
+        # really gross hack. basically there's a difference between "methods"
+        # and "functions". we can directly call functions w/out worrying about
+        # self, but we *have* to unbind methods.
+        # this is complicated by the fact that we use both `def` and `lambda`
+        # to set _ready_to_move in different situations (for syntactical clarity)
+        if hasattr(self._ready_to_move, "__func__"):        # method
+            return self._ready_to_move.__func__(self)
+        return self._ready_to_move(self)                    # function
     
     def await_ready_to_move(self):
         """
@@ -162,14 +169,13 @@ class Drone(_Vehicle):
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")
         self._abortable = True
 
-        # wait for sticks to return to center by taking rolling avg (2) with dt = 1sec
-        rcin_4 = [-999] * 2 # use something obviously out of range
-        def _rcin_4_listener(_, _, message):
+        # wait for sticks to return to center by taking rolling avg (30 frames)
+        rcin_4 = [-999] * 30 # use something obviously out of range
+        def _rcin_4_listener(_, __, message):
             rcin_4.pop(0)
             rcin_4.append(message.chan4_raw)
         self._vehicle.add_message_listener("RC_CHANNELS", _rcin_4_listener)
-        while not 1450 <= (sum(rcin_4) / len(rcin_4)) <= 1550:
-            time.sleep(1)
+        while not 1450 <= (sum(rcin_4) / len(rcin_4)) <= 1550: pass
         self._vehicle.remove_message_listener("RC_CHANNELS", _rcin_4_listener)
         
         self._vehicle.simple_takeoff(target_alt)
@@ -178,7 +184,8 @@ class Drone(_Vehicle):
 
     def land(self):
         """
-        Land the drone. No further movement is allowed (for now!)
+        Land the drone and wait for it to be disarmed (BLOCKING).
+        No further movement is allowed (for now!)
         """
         self.await_ready_to_move()
 
@@ -186,6 +193,7 @@ class Drone(_Vehicle):
         self._vehicle.mode = dronekit.VehicleMode("LAND")
 
         self._ready_to_move = lambda _: False
+        while self.armed: pass
 
 # TODO break this down further:
 # class LAM(_Drone)

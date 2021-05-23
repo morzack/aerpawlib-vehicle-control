@@ -21,7 +21,7 @@ if __name__ == "__main__":
     parser = ArgumentParser(description="aerpawlib - wrap and run aerpaw scripts")
     parser.add_argument("--script", help="experimenter script", required=True)
     parser.add_argument("--conn", help="connection string", required=True)
-    args = parser.parse_args()
+    args, unknown_args = parser.parse_known_args() # we'll pass other args to the script
 
     # import script and use reflection to get StateMachine
     experimenter_script = importlib.import_module(args.script)
@@ -40,7 +40,10 @@ if __name__ == "__main__":
 
     # here's where we add our hooks or whatever else we want
     # TODO choose vehicle based on input flag
-    vehicle = Drone()
+    vehicle = Drone(args.conn)
 
     # now run their code through our runner
+    runner.initialize_args(unknown_args)
     runner.run(vehicle)
+
+    vehicle.close()
