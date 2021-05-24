@@ -1,10 +1,10 @@
 import inspect
 from typing import Callable, Dict, List
 
-from .vehicle import _Vehicle
+from .vehicle import Vehicle
 
 class _Runner:
-    def run(self, _: _Vehicle):
+    def run(self, _: Vehicle):
         """
         Run the script that's been loaded in -- impl dependent
         """
@@ -16,7 +16,7 @@ class _Runner:
         """
         pass
 
-_Runnable = Callable[[_Runner, _Vehicle], str]
+_Runnable = Callable[[_Runner, Vehicle], str]
 
 def entrypoint(func):
     func._entrypoint = True
@@ -30,7 +30,7 @@ class BasicRunner(_Runner):
             if hasattr(method, "_entrypoint"):
                 self._entry = method
 
-    def run(self, vehicle: _Vehicle):
+    def run(self, vehicle: Vehicle):
         self._build()
         if hasattr(self, "_entry"):
             self._entry.__func__(self, vehicle)
@@ -45,7 +45,7 @@ class _State:
         self._name = name
         self._func = func
 
-    def __call__(self, runner: _Runner, vehicle: _Vehicle):
+    def __call__(self, runner: _Runner, vehicle: Vehicle):
         return self._func.__func__(runner, vehicle)
 
 def state(name: str, first: bool=False):
@@ -76,7 +76,7 @@ class StateMachine(_Runner):
         if not self._entrypoint:
             raise Exception("There is no initial state")
 
-    def run(self, vehicle: _Vehicle):
+    def run(self, vehicle: Vehicle):
         self._build()
         assert self._entrypoint
         self._current_state = self._entrypoint

@@ -5,7 +5,7 @@ from typing import Callable
 
 from . import util
 
-class _Vehicle:
+class Vehicle:
     _vehicle: dronekit.Vehicle
     _has_heartbeat: bool
     
@@ -156,7 +156,7 @@ class _Vehicle:
         self._ready_to_move = lambda self: \
             util.calc_distance(coordinates, self.position) <= tolerance
 
-class Drone(_Vehicle):
+class Drone(Vehicle):
     def takeoff(self, target_alt: float, min_alt_tolerance: float=0.95):
         """
         Blocking function (waits for the drone to be ready to move) that makes
@@ -196,6 +196,6 @@ class Drone(_Vehicle):
         while self.armed: pass
 
 # TODO break this down further:
-# class LAM(_Drone)
-# class SAM(_Drone)
-# class Rover(_Vehicle)
+# class LAM(Drone)
+# class SAM(Drone)
+# class Rover(Vehicle)
