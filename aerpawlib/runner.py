@@ -15,6 +15,13 @@ class _Runner:
         Can be overridden to parse and handle extra args passed to the runner
         """
         pass
+    
+    def cleanup(self):
+        """
+        Additional user-provided functionality that is called when the script
+        exits
+        """
+        pass
 
 _Runnable = Callable[[_Runner, Vehicle], str]
 
@@ -56,14 +63,29 @@ def state(name: str, first: bool=False):
         return func
     return decorator
 
+# TODO the background task implementation would be kind of messy if using threads...
+# the "proper" (and implemented) way to do this is by having the registered
+# background functions periodically called by the main thread (so that everything)
+# remains w/in the main thread), but this means that you CANNOT have "blocking"
+# states when using a state machine
+# tl;dr this is a hack, but it also isn't a hack. there's no perfect solution that
+# I know of, and getting researchers to write thread-safe code is probably not possible
+_BackgroundTask = Callable[[_Runner, Vehicle], None]
+
+def background(func):
+    func._is_background = True
+    return func
+
 class StateMachine(_Runner):
     _states: Dict[str, _State]
+    _background_tasks: List[_BackgroundTask]
     _entrypoint: str
     _current_state: str
     _running: bool
 
     def _build(self):
         self._states = {}
+        self._background_tasks = []
         for _, method in inspect.getmembers(self):
             if not inspect.ismethod(method):
                 continue
@@ -73,6 +95,8 @@ class StateMachine(_Runner):
                     self._entrypoint = method._state_name
                 elif method._state_first and hasattr(self, "_entrypoint"):
                     raise Exception("There may only be one initial state")
+            if hasattr(method, "_is_background"):
+                self._background_tasks.append(method)
         if not self._entrypoint:
             raise Exception("There is no initial state")
 
@@ -85,8 +109,11 @@ class StateMachine(_Runner):
             if self._current_state not in self._states:
                 raise Exception("Illegal state")
             self._current_state = self._states[self._current_state](self, vehicle)
+            for task in self._background_tasks:
+                task.__func__(self, vehicle)
             if self._current_state is None:
                 self.stop()
+        self.cleanup()
 
     def stop(self):
         self._running = False

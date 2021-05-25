@@ -7,7 +7,8 @@ able to take advantage of a few existing frameworks when building your script.
 To install as a local library (this maintains a dynamic link to this dir):
     pip install -e .
 
-Usage:
-    import aerpawlib
+For specific usage instructions, check out aerpawlib/__main__.py or run
+    python -m aerpawlib --help
+in your shell after installing
 
-Examples will be written later
+More examples/docs will be written soon!

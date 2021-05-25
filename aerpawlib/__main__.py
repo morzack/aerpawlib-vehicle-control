@@ -3,10 +3,12 @@ demo runner to show a possible implementation of a state machine for profiles
 this also lets us sandbox things to a degree by using a custom vehicle
 
 usage:
-    python runner.py --script <script import path> --conn <connection string>
+    python runner.py --script <script import path> --conn <connection string> \
+            --vehicle <vehicle type>
 
 example:
-    python -m aerpawlib --script experimenter_script --conn /dev/ttyACM0
+    python -m aerpawlib --script experimenter_script --conn /dev/ttyACM0 \
+            --vehicle drone
 """
 
 from .runner import BasicRunner, StateMachine, _Runner

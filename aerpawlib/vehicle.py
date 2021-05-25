@@ -85,7 +85,8 @@ class Vehicle:
     def heading(self, heading: float):
         """
         Blocking way to set the heading of the vehicle (in absolute deg).
-        Can be paired up with += to use relative coordinates
+        Can be paired up with += to use relative coordinates -- i.e. we will
+        never turn relative to our current heading
         """
         self.await_ready_to_move()
 
@@ -117,7 +118,7 @@ class Vehicle:
         """
         See if the vehicle is ready to move (i.e. if the last movement command is complete)
         """
-        # really gross hack. basically there's a difference between "methods"
+        # mild hack. basically there's a difference between "methods"
         # and "functions". we can directly call functions w/out worrying about
         # self, but we *have* to unbind methods.
         # this is complicated by the fact that we use both `def` and `lambda`
