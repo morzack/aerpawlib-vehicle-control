@@ -1,8 +1,12 @@
 import dronekit
 from pymavlink import mavutil
+from time import sleep
 from typing import Callable
 
 from . import util
+
+# time to wait when polling for dronekit vehicle state changes
+_POLLING_DELAY = 0.01 # s
 
 class Vehicle:
     _vehicle: dronekit.Vehicle
@@ -41,7 +45,7 @@ class Vehicle:
         self._vehicle.add_attribute_listener("mode", _abort_listener)
 
         while not self._has_heartbeat:
-            pass
+            sleep(_POLLING_DELAY)
 
     # nouns
     @property
@@ -72,7 +76,7 @@ class Vehicle:
         if not self._vehicle.is_armable:
             raise Exception("Not ready to arm")
         self._vehicle.armed = value
-        while not self._vehicle.armed: pass
+        while not self._vehicle.armed: sleep(_POLLING_DELAY)
 
     @property
     def home_coords(self) -> dronekit.LocationGlobalRelative:
@@ -110,7 +114,7 @@ class Vehicle:
         Helper blocking function that waits for the vehicle to finish the current
         action/movement that it was instructed to do
         """
-        while not self.done_moving(): pass
+        while not self.done_moving(): sleep(_POLLING_DELAY)
 
     def _abort(self):
         # TODO this should be something different in the future.
@@ -131,7 +135,7 @@ class Vehicle:
         acceptable. MUST be called before anything else. Though this is done by
         the runner.
         """
-        while not self.armed: pass
+        while not self.armed: sleep(_POLLING_DELAY)
 
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")
         self._abortable = True
@@ -197,7 +201,7 @@ class Drone(Vehicle):
             rcin_4.pop(0)
             rcin_4.append(message.chan4_raw)
         self._vehicle.add_message_listener("RC_CHANNELS", _rcin_4_listener)
-        while not 1450 <= (sum(rcin_4) / len(rcin_4)) <= 1550: pass
+        while not 1450 <= (sum(rcin_4) / len(rcin_4)) <= 1550: sleep(_POLLING_DELAY)
         self._vehicle.remove_message_listener("RC_CHANNELS", _rcin_4_listener)
         
         self._vehicle.simple_takeoff(target_alt)
@@ -215,7 +219,7 @@ class Drone(Vehicle):
         self._vehicle.mode = dronekit.VehicleMode("LAND")
 
         self._ready_to_move = lambda _: False
-        while self.armed: pass
+        while self.armed: sleep(_POLLING_DELAY)
 
 class Rover(Vehicle):
     def goto_coordinates(self, coordinates: dronekit.LocationGlobalRelative, tolerance: float=2):

@@ -10,8 +10,6 @@ LOCATION_TOLERANCE = 2 # m -- ~2 is safe in general, use 3 for the rover in SITL
 class SquareOff(StateMachine):
     @state(name="start", first=True)
     def start(self, vehicle: Vehicle):
-        # wait for the vehicle to be armed 
-        while not vehicle.armed: pass
         if isinstance(vehicle, Drone):
             return "take_off"
         elif isinstance(vehicle, Rover):
