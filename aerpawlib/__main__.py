@@ -12,7 +12,7 @@ example:
 """
 
 from .runner import BasicRunner, StateMachine, _Runner
-from .vehicle import Drone, Vehicle
+from .vehicle import Drone, Rover, Vehicle
 
 import importlib
 import inspect
@@ -23,7 +23,7 @@ if __name__ == "__main__":
     parser = ArgumentParser(description="aerpawlib - wrap and run aerpaw scripts")
     parser.add_argument("--script", help="experimenter script", required=True)
     parser.add_argument("--conn", help="connection string", required=True)
-    parser.add_argument("--vehicle", help="vehicle type [generic, drone]", required=True)
+    parser.add_argument("--vehicle", help="vehicle type [generic, drone, rover]", required=True)
     args, unknown_args = parser.parse_known_args() # we'll pass other args to the script
 
     # import script and use reflection to get StateMachine
@@ -46,7 +46,8 @@ if __name__ == "__main__":
                         # use cool things like regex to filter easily.
                         # think pattern matching!
             "generic": Vehicle,
-            "drone": Drone
+            "drone": Drone,
+            "rover": Rover
             }.get(args.vehicle, None)
     if vehicle_type is None:
         raise Exception("Please specify a valid vehicle type")

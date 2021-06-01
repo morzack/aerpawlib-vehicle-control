@@ -1,6 +1,5 @@
 import dronekit
 from pymavlink import mavutil
-import time
 from typing import Callable
 
 from . import util
@@ -21,6 +20,10 @@ class Vehicle:
 
     def __init__(self, connection_string: str):
         self._vehicle = dronekit.connect(connection_string, wait_ready=True)
+        self._vehicle.commands.download()
+        self._vehicle.commands.wait_ready() # we need to do this to capture
+                                            # things such as the home location
+        
         self._has_heartbeat = False
         
         # can be pulled out to go elsewhere later
@@ -154,6 +157,7 @@ class Vehicle:
         """
         self.await_ready_to_move()
         self._vehicle.simple_goto(coordinates)
+        # NOTE fwiw: we've never done this in the past, but this should include alt probably
         self._ready_to_move = lambda self: \
             util.calc_distance(coordinates, self.position) <= tolerance
 
@@ -196,7 +200,21 @@ class Drone(Vehicle):
         self._ready_to_move = lambda _: False
         while self.armed: pass
 
+class Rover(Vehicle):
+    def initialize(self):
+        """
+        Generic pre-mission manipulation of the rover into a state that is
+        acceptable. MUST be called before anything else, a la takeoff.
+        """
+        while not self.armed: pass
+
+        self._vehicle.mode = dronekit.VehicleMode("GUIDED")
+        self._abortable = True
+
+    def goto_coordinates(self, coordinates: dronekit.LocationGlobalRelative, tolerance: float=2):
+        coords = dronekit.LocationGlobalRelative(coordinates.lat, coordinates.lon, 0)
+        return super().goto_coordinates(coords, tolerance=tolerance)
+
 # TODO break this down further:
 # class LAM(Drone)
 # class SAM(Drone)
-# class Rover(Vehicle)
