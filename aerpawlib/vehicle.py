@@ -83,38 +83,6 @@ class Vehicle:
     def heading(self) -> float:
         return self._vehicle.heading
     
-    @heading.setter
-    def heading(self, heading: float):
-        """
-        Blocking way to set the heading of the vehicle (in absolute deg).
-        Can be paired up with += to use relative coordinates -- i.e. we will
-        never turn relative to our current heading
-        """
-        self.await_ready_to_move()
-
-        heading %= 360
-        
-        # get turn direction
-        delta = heading - self.heading
-        turn_cw = delta >= 0
-
-        self._vehicle.send_mavlink(self._vehicle.message_factory.command_long_encode(
-            0, 0,                                       # target system, component
-            mavutil.mavlink.MAV_CMD_CONDITION_YAW,      # command
-            0,                                          # confirmation
-            heading,                                    # yaw angle in deg
-            0,                                          # yaw speed in deg/s
-            1 if turn_cw else -1,                       # direction to turn in (-1: ccw, 1: cw)
-            0,                                          # never turn relative to our current heading
-            0, 0, 0                                     # unused
-            ))
-        
-        def _pointed_at_heading(self) -> bool:
-            _TURN_TOLERANCE_DEG = 5
-            turn_diff = min([abs(i) for i in [heading - self.heading, self.heading - heading]])
-            return turn_diff <= _TURN_TOLERANCE_DEG
-        self._ready_to_move = _pointed_at_heading
-
     # special things
     def done_moving(self) -> bool:
         """
@@ -184,6 +152,38 @@ class Vehicle:
             util.calc_distance(coordinates, self.position) <= tolerance
 
 class Drone(Vehicle):
+    @Vehicle.heading.setter
+    def heading(self, heading: float):
+        """
+        Blocking way to set the heading of the vehicle (in absolute deg).
+        Can be paired up with += to use relative coordinates -- i.e. we will
+        never turn relative to our current heading
+        """
+        self.await_ready_to_move()
+
+        heading %= 360
+        
+        # NOTE that the system and component below are derived from commands
+        # observed in SITL. could be wrong, and it's kind of magic undocumnted stuff.
+        # doing more research.
+        msg = self._vehicle.message_factory.command_long_encode(
+            1, 250,                                     # target system, component
+            mavutil.mavlink.MAV_CMD_CONDITION_YAW,      # command
+            0,                                          # confirmation
+            heading,                                    # yaw angle in deg
+            0,                                          # yaw speed in deg/s
+            0,                                          # direction to turn in (-1: ccw, 1: cw)
+            0,                                          # never turn relative to our current heading
+            0, 0, 0                                     # unused
+            )
+        self._vehicle.send_mavlink(msg)
+        
+        def _pointed_at_heading(self) -> bool:
+            _TURN_TOLERANCE_DEG = 5
+            turn_diff = min([abs(i) for i in [heading - self.heading, self.heading - (heading + 360)]])
+            return turn_diff <= _TURN_TOLERANCE_DEG
+        self._ready_to_move = _pointed_at_heading
+
     def takeoff(self, target_alt: float, min_alt_tolerance: float=0.95):
         """
         Blocking function (waits for the drone to be ready to move) that makes
