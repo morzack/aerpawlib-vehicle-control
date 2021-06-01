@@ -17,6 +17,7 @@ class Vehicle:
     # aborting is triggered by mode changes, so we need to ignore the initial
     # takeoff and final landing changes
     _abortable: bool=False
+    _aborted: bool=False
 
     def __init__(self, connection_string: str):
         self._vehicle = dronekit.connect(connection_string, wait_ready=True)
@@ -71,9 +72,7 @@ class Vehicle:
         if not self._vehicle.is_armable:
             raise Exception("Not ready to arm")
         self._vehicle.armed = value
-        while not self._vehicle.armed:
-            # TODO add some kind of timeout?
-            pass
+        while not self._vehicle.armed: pass
 
     @property
     def home_coords(self) -> dronekit.LocationGlobalRelative:
@@ -104,7 +103,7 @@ class Vehicle:
             mavutil.mavlink.MAV_CMD_CONDITION_YAW,      # command
             0,                                          # confirmation
             heading,                                    # yaw angle in deg
-            10,                                         # yaw speed in deg TODO tune per vehicle?
+            0,                                          # yaw speed in deg/s
             1 if turn_cw else -1,                       # direction to turn in (-1: ccw, 1: cw)
             0,                                          # never turn relative to our current heading
             0, 0, 0                                     # unused
@@ -120,8 +119,16 @@ class Vehicle:
     def done_moving(self) -> bool:
         """
         See if the vehicle is ready to move (i.e. if the last movement command is complete)
+
+        Also makes sure that the vehicle is connected and that we haven't aborted.
+        
+        This is more accurately a function that describes the vehicle's willingness
+        to take a new command
         """
-        # mild hack. basically there's a difference between "methods"
+        if not self.connected or self._aborted:
+            return False
+
+        # mild syntax hack. basically there's a difference between "methods"
         # and "functions". we can directly call functions w/out worrying about
         # self, but we *have* to unbind methods.
         # this is complicated by the fact that we use both `def` and `lambda`
@@ -138,14 +145,28 @@ class Vehicle:
         while not self.done_moving(): pass
 
     def _abort(self):
-        # TODO what do we want this to do?
+        # TODO this should be something different in the future.
+        # the intent of it in the past has been blocking further execution of
+        # more vehicle control logic.
         if self._abortable:
             print("Aborted.")
             self._abortable = False
+            self._aborted = True # TODO i'm not a fan of the flag approach here
 
     # verbs
     def close(self):
         self._vehicle.close()
+
+    def _initialize(self):
+        """
+        Generic pre-mission manipulation of the vehicle into a state that is
+        acceptable. MUST be called before anything else. Though this is done by
+        the runner.
+        """
+        while not self.armed: pass
+
+        self._vehicle.mode = dronekit.VehicleMode("GUIDED")
+        self._abortable = True
 
     def goto_coordinates(self, coordinates: dronekit.LocationGlobalRelative, tolerance: float=2):
         """
@@ -158,6 +179,7 @@ class Vehicle:
         self.await_ready_to_move()
         self._vehicle.simple_goto(coordinates)
         # NOTE fwiw: we've never done this in the past, but this should include alt probably
+        # also, maybe use a rolling average in the future?
         self._ready_to_move = lambda self: \
             util.calc_distance(coordinates, self.position) <= tolerance
 
@@ -167,12 +189,7 @@ class Drone(Vehicle):
         Blocking function (waits for the drone to be ready to move) that makes
         a drone wait to be armed and then takes off to a specific altituide
         """
-        self.await_ready_to_move()
-        
-        while not self.armed: pass
-        
-        self._vehicle.mode = dronekit.VehicleMode("GUIDED")
-        self._abortable = True
+        self.await_ready_to_move()        
 
         # wait for sticks to return to center by taking rolling avg (30 frames)
         rcin_4 = [-999] * 30 # use something obviously out of range
@@ -201,16 +218,6 @@ class Drone(Vehicle):
         while self.armed: pass
 
 class Rover(Vehicle):
-    def initialize(self):
-        """
-        Generic pre-mission manipulation of the rover into a state that is
-        acceptable. MUST be called before anything else, a la takeoff.
-        """
-        while not self.armed: pass
-
-        self._vehicle.mode = dronekit.VehicleMode("GUIDED")
-        self._abortable = True
-
     def goto_coordinates(self, coordinates: dronekit.LocationGlobalRelative, tolerance: float=2):
         coords = dronekit.LocationGlobalRelative(coordinates.lat, coordinates.lon, 0)
         return super().goto_coordinates(coords, tolerance=tolerance)

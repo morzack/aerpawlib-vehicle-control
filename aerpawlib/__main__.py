@@ -55,6 +55,9 @@ if __name__ == "__main__":
 
     # now run their code through our runner
     runner.initialize_args(unknown_args)
+    
+    print("Waiting for safety pilot to arm")
+    vehicle._initialize()
     runner.run(vehicle)
 
     vehicle.close()

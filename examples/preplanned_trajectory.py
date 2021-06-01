@@ -37,7 +37,6 @@ class PreplannedTrajectory(StateMachine):
 
     @state(name="take_off", first=True)
     def take_off(self, drone: Drone):
-        print("Waiting for safety pilot to arm...")
         takeoff_alt = self._waypoints[self._current_waypoint][3]
         drone.takeoff(takeoff_alt)
         print(f"Taking off to {takeoff_alt}")
