@@ -1,4 +1,5 @@
 import inspect
+import time
 from typing import Callable, Dict, List
 
 from .vehicle import Vehicle
@@ -76,6 +77,8 @@ def background(func):
     func._is_background = True
     return func
 
+_STATE_DELAY = 0.01 # s between each time the state update is called
+
 class StateMachine(_Runner):
     _states: Dict[str, _State]
     _background_tasks: List[_BackgroundTask]
@@ -113,6 +116,7 @@ class StateMachine(_Runner):
                 task.__func__(self, vehicle)
             if self._current_state is None:
                 self.stop()
+            time.sleep(_STATE_DELAY)
         self.cleanup()
 
     def stop(self):
