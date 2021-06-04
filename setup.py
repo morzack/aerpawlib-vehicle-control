@@ -9,6 +9,7 @@ setup(
         packages=["aerpawlib"],
         install_requires=[
             "dronekit",
-            "pymavlink"
+            "pymavlink",
+            "pyserial"
             ]
         )

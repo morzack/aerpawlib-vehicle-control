@@ -1,16 +1,52 @@
+"""
+squareoff_logging will drive a vehicle (of any type) along a 10m square and use
+a @background task to record the position of the vehicle. This is another good
+example of how to use the StateMachine runner, as well as @background tasks and
+initialize_args. Additionally, this runner hold internal state used to implement:
+    - Timers
+    - File objects
+    - an additonal level of state (current leg)
+
+Usage:
+    python -m aerpawlib --conn ... --vehicle ... --script squareoff_logging \
+        --output <optional output file> --samplerate <sample rate in Hz>
+
+State vis:
+
+┌───────┐drone ┌──────────┐
+│ start ├──────► take_off │
+└───┬───┘      └─────┬────┘
+    │                │
+    ├────────────────┘
+    │                      ┌────┐
+┌───▼───────┐       ┌──────┴────▼┐
+│ leg_north ├───────► in_transit │
+│           │       └───┬────────┘
+│ leg_west  │           │
+│           │       ┌───▼─────────┐
+│ leg_south ◄───────┤ at_position │
+│           │pick   └───┬──┬────▲─┘
+│ leg_east  │based on   │  └────┘wait 5s
+└───────────┘current_leg│
+                    ┌───▼────┐drone ┌──────┐
+                    │ finish ├──────► land │
+                    └────────┘      └──────┘
+"""
+
 from argparse import ArgumentParser
 import csv
 import datetime
 import time
 from typing import List, TextIO
+
 from aerpawlib.runner import StateMachine, state, background
 from aerpawlib.util import calc_location_delta
 from aerpawlib.vehicle import Drone, Rover, Vehicle
 
-FLIGHT_ALT = 3 # m
-SQUARE_SIZE = 10 # m
-LOCATION_TOLERANCE = 3 # m -- ~2 is safe in general, use 3 for the rover in SITL
-WAIT_TIME = 5 # s
+FLIGHT_ALT = 3          # m
+SQUARE_SIZE = 10        # m
+LOCATION_TOLERANCE = 3  # m -- ~2 is safe in general, use 3 for the rover in SITL
+WAIT_TIME = 5           # s
 
 def _dump_to_csv(vehicle: Vehicle, line_num: int, writer):
     pos = vehicle.position
@@ -24,7 +60,15 @@ def _dump_to_csv(vehicle: Vehicle, line_num: int, writer):
     writer.writerow([line_num, lon, lat, alt, volt, timestamp, fix, num_sat])
 
 class SquareOff(StateMachine):
+    _next_sample: float=0
+    _sampling_delay: float
+    _cur_line: int
+    _csv_writer: object
+    _log_file: TextIO
+
     def initialize_args(self, extra_args: List[str]):
+        # initialize extra arguments as well as any additional variables used by
+        # this StateMachine
         default_file = f"GPS_DATA_{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}.csv"
 
         parser = ArgumentParser()
@@ -38,15 +82,11 @@ class SquareOff(StateMachine):
         self._log_file = open(args.output, 'w+')
         self._cur_line = sum(1 for _ in self._log_file) + 1
         self._csv_writer = csv.writer(self._log_file)
-
-    _next_sample: float=0
-    _sampling_delay: float
-    _cur_line: int
-    _csv_writer: object
-    _log_file: TextIO
     
     @background
     def periodic_dump(self, vehicle: Vehicle):
+        # background task that (using a timer) periodically dumps vehicle status
+        # into a provided file
         if time.time() > self._next_sample:
             self._next_sample = time.time() + self._sampling_delay
             if not vehicle.connected:
@@ -55,6 +95,8 @@ class SquareOff(StateMachine):
             self._cur_line += 1
 
     def cleanup(self):
+        # called by the runner at the end of execution to clean up lingering
+        # file objects/related
         self._log_file.close()
     
     _legs = ["leg_north", "leg_west", "leg_south", "leg_east"]
@@ -62,6 +104,8 @@ class SquareOff(StateMachine):
 
     @state(name="start", first=True)
     def start(self, vehicle: Vehicle):
+        # determine the type of the vehicle and branch execution based on it to
+        # allow for more generic scripts
         if isinstance(vehicle, Drone):
             return "take_off"
         elif isinstance(vehicle, Rover):
@@ -70,6 +114,10 @@ class SquareOff(StateMachine):
 
     @state(name="take_off")
     def take_off(self, drone: Drone):
+        # only reachable by drones; take off and (blocking) wait for it to reach
+        # a specified alt
+        # this is a good example of *willingly* blocking, as we don't need the
+        # @background task (logging) to happen while taking off.
         print("taking off")
         drone.takeoff(FLIGHT_ALT)
         drone.await_ready_to_move()
@@ -77,30 +125,39 @@ class SquareOff(StateMachine):
         drone.await_ready_to_move()
         return "leg_north"
 
+    _position_timer: float=0
+    
+    @state(name="in_transit")
+    def in_transit(self, vehicle: Vehicle):
+        # called in between legs while waiting for the vehicle to get to a location
+        if not vehicle.done_moving():
+            return "in_transit"
+
+        # start our timer that holds up at a position when we finish a leg
+        self._position_timer = time.time() + WAIT_TIME
+        return "at_position"
+    
+    @state(name="at_position")
+    def at_position(self, _):
+        # wait after each leg by regularly checking a "timer" to see if we can
+        # go to the next state or nor
+        if time.time() <= self._position_timer:
+            return "at_position"
+
+        # advance to the next leg, if there is a next leg
+        self._current_leg += 1
+        if self._current_leg < len(self._legs):
+            return self._legs[self._current_leg]
+
+        # if there are no more legs, complete the script
+        return "finish"
+
     def command_leg(self, vehicle: Vehicle, dNorth: float, dEast: float):
+        # helper function to send a drone or rover to a specific position
         current_pos = vehicle.position
         target_pos = calc_location_delta(current_pos, dNorth, dEast)
         vehicle.goto_coordinates(target_pos, tolerance=LOCATION_TOLERANCE)
         vehicle.await_ready_to_move()
-
-    @state(name="in_transit")
-    def in_transit(self, vehicle: Vehicle):
-        if not vehicle.done_moving():
-            return "in_transit"
-        self._position_timer = time.time() + WAIT_TIME
-        return "at_position"
-
-    _position_timer: float=0
-    
-    @state(name="at_position")
-    def at_position(self, _):
-        # make sure that we wait at each corner
-        if time.time() <= self._position_timer:
-            return "at_position"
-        self._current_leg += 1
-        if self._current_leg < len(self._legs):
-            return self._legs[self._current_leg]
-        return "finish"
 
     @state(name="leg_north")
     def leg_north(self, vehicle: Vehicle):
@@ -128,14 +185,19 @@ class SquareOff(StateMachine):
 
     @state(name="finish")
     def finish(self, vehicle: Vehicle):
+        # when done with the script, execute a special state depending on
+        # vehicle type.
         if isinstance(vehicle, Drone):
+            # land drones
             return "land"
         elif isinstance(vehicle, Rover):
+            # rovers are done without anything special
             print("done!")
             # remember that returning nothing == script over
 
     @state(name="land")
     def land(self, drone: Drone):
+        # (blocking) land the drone. We can block here because we don't care
+        # if @background tasks keep (in this case) logging
         drone.land()
-        # wait for disarm
         print("done!")

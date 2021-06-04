@@ -31,6 +31,11 @@ def entrypoint(func):
     return func
 
 class BasicRunner(_Runner):
+    """
+    BasicRunners have a single entry point (specified by @entrypoint) that is
+    executed when the script is run. The function provided can be anything,
+    blocking doesn't matter.
+    """
     def _build(self):
         for _, method in inspect.getmembers(self):
             if not inspect.ismethod(method):
@@ -64,22 +69,34 @@ def state(name: str, first: bool=False):
         return func
     return decorator
 
-# TODO the background task implementation would be kind of messy if using threads...
-# the "proper" (and implemented) way to do this is by having the registered
-# background functions periodically called by the main thread (so that everything)
-# remains w/in the main thread), but this means that you CANNOT have "blocking"
-# states when using a state machine
-# tl;dr this is a hack, but it also isn't a hack. there's no perfect solution that
-# I know of, and getting researchers to write thread-safe code is probably not possible
 _BackgroundTask = Callable[[_Runner, Vehicle], None]
 
 def background(func):
+    """
+    Designate a function to be run in parallel to a given StateMachine. This
+    functionality only works if the state machine is designed to be non-blocking
+
+    so, there's an implcit TODO here to use threading.
+    """
     func._is_background = True
     return func
 
 _STATE_DELAY = 0.01 # s between each time the state update is called
 
 class StateMachine(_Runner):
+    """
+    A StateMachine is a type of runner that consists of various states declared
+    using @state. Each state when run should return a string that is the name
+    of the next state to execute. If no next state is provided, it's assumed
+    that the state machine is done running.
+
+    A note about blocking: no state in the state machine should be blocking
+    (i.e. don't include while loops or time.sleeps, unless you know what you're
+    doing). By doing that, you're blocking the entire runner thread, which in
+    turn blocks other things such as background tasks. This will be addressed
+    later when proper threading/async patterns are implemented.
+    """
+
     _states: Dict[str, _State]
     _background_tasks: List[_BackgroundTask]
     _entrypoint: str

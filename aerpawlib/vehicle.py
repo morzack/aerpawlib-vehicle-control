@@ -1,3 +1,4 @@
+import math
 import dronekit
 from pymavlink import mavutil
 from time import sleep
@@ -31,7 +32,7 @@ class Vehicle:
         
         self._has_heartbeat = False
         
-        # can be pulled out to go elsewhere later
+        # register required listeners after connecting
         def _heartbeat_listener(_, __, value):
             if value > 1 and self._has_heartbeat:
                 self._has_heartbeat = False
@@ -44,6 +45,7 @@ class Vehicle:
                 self._abort()
         self._vehicle.add_attribute_listener("mode", _abort_listener)
 
+        # wait for connection
         while not self._has_heartbeat:
             sleep(_POLLING_DELAY)
 
@@ -74,7 +76,9 @@ class Vehicle:
         # this pattern keeps the funky logic out of the experimenter's script
         # to make sure that things are safer overall
         if not self._vehicle.is_armable:
-            raise Exception("Not ready to arm")
+            raise Exception("Not ready to arm") # in this case, the script dies completely
+                                                # obviously not optimal *unless* we are
+                                                # certain that a scipt always arms once
         self._vehicle.armed = value
         while not self._vehicle.armed: sleep(_POLLING_DELAY)
 
@@ -100,11 +104,8 @@ class Vehicle:
         if not self.connected or self._aborted:
             return False
 
-        # mild syntax hack. basically there's a difference between "methods"
-        # and "functions". we can directly call functions w/out worrying about
-        # self, but we *have* to unbind methods.
-        # this is complicated by the fact that we use both `def` and `lambda`
-        # to set _ready_to_move in different situations (for syntactical clarity)
+        # syntax hack. functions and methods are different and need to be called
+        # differently to prevent them from being bound to self
         if hasattr(self._ready_to_move, "__func__"):        # method
             return self._ready_to_move.__func__(self)
         return self._ready_to_move(self)                    # function
@@ -123,7 +124,7 @@ class Vehicle:
         if self._abortable:
             print("Aborted.")
             self._abortable = False
-            self._aborted = True # TODO i'm not a fan of the flag approach here
+            self._aborted = True
 
     # verbs
     def close(self):
@@ -139,21 +140,16 @@ class Vehicle:
 
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")
         self._abortable = True
-
+    
     def goto_coordinates(self, coordinates: dronekit.LocationGlobalRelative, tolerance: float=2):
         """
         Make the vehicle go to provided coordinates. Blocks while waiting for the
         vehicle to be ready to move
 
-        tolerance is the min distance away from the coordinates, in meters, that are
+        tolerance is the min distance away from the coordinates, in meters, that is
         acceptable
         """
-        self.await_ready_to_move()
-        self._vehicle.simple_goto(coordinates)
-        # NOTE fwiw: we've never done this in the past, but this should include alt probably
-        # also, maybe use a rolling average in the future?
-        self._ready_to_move = lambda self: \
-            util.calc_distance(coordinates, self.position) <= tolerance
+        raise Exception("Generic vehicles can't go to coordinates!")
 
 class Drone(Vehicle):
     @Vehicle.heading.setter
@@ -195,6 +191,7 @@ class Drone(Vehicle):
         """
         self.await_ready_to_move()        
 
+        # TODO the below logic needs to be tested at the field.
         # wait for sticks to return to center by taking rolling avg (30 frames)
         rcin_4 = [-999] * 30 # use something obviously out of range
         def _rcin_4_listener(_, __, message):
@@ -221,10 +218,24 @@ class Drone(Vehicle):
         self._ready_to_move = lambda _: False
         while self.armed: sleep(_POLLING_DELAY)
 
+    def goto_coordinates(self, coordinates: dronekit.LocationGlobalRelative, tolerance: float=2):
+        self.await_ready_to_move()
+        self._vehicle.simple_goto(coordinates)
+        
+        # TODO in the future we likely want to split alt into a different tolerance
+        self._ready_to_move = lambda self: \
+            math.hypot(util.calc_distance(coordinates, self.position),
+                    coordinates.alt - self.position.alt) <= tolerance
+
 class Rover(Vehicle):
     def goto_coordinates(self, coordinates: dronekit.LocationGlobalRelative, tolerance: float=2):
-        coords = dronekit.LocationGlobalRelative(coordinates.lat, coordinates.lon, 0)
-        return super().goto_coordinates(coords, tolerance=tolerance)
+        coordinates = dronekit.LocationGlobalRelative(coordinates.lat, coordinates.lon, 0)
+        
+        self.await_ready_to_move()
+        self._vehicle.simple_goto(coordinates)
+        
+        self._ready_to_move = lambda self: \
+            util.calc_distance(coordinates, self.position) <= tolerance
 
 # TODO break this down further:
 # class LAM(Drone)

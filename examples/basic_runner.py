@@ -1,7 +1,20 @@
+"""
+Example of a script that has a single entry point that doesn't use any kind of
+special Runner.
+"""
+
 from aerpawlib.runner import BasicRunner, entrypoint
-from aerpawlib.vehicle import Vehicle
+from aerpawlib.util import calc_location_delta
+from aerpawlib.vehicle import Drone
 
 class MyScript(BasicRunner):
     @entrypoint
-    def do_stuff(self, vehicle: Vehicle):
-        print("woo, i'm running now")
+    def do_stuff(self, drone: Drone):
+        # take off to 10m
+        drone.takeoff(10)
+        
+        # fly north 10m
+        drone.goto_coordinates(calc_location_delta(drone.position, 10, 0))
+
+        # land
+        drone.land()

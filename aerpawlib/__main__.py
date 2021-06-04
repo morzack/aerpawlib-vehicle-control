@@ -1,9 +1,8 @@
 """
-demo runner to show a possible implementation of a state machine for profiles
-this also lets us sandbox things to a degree by using a custom vehicle
+Tool used to run aerpawlib scripts that make use of a Runner class.
 
 usage:
-    python runner.py --script <script import path> --conn <connection string> \
+    python -m aerpawlib --script <script import path> --conn <connection string> \
             --vehicle <vehicle type>
 
 example:
@@ -41,10 +40,7 @@ if __name__ == "__main__":
             raise Exception("You can only define one runner")
         runner = val()
 
-    # here's where we add our hooks or whatever else we want
-    vehicle_type = {    # NOTE -- this is a bad pattern *but* we can change it to
-                        # use cool things like regex to filter easily.
-                        # think pattern matching!
+    vehicle_type = {
             "generic": Vehicle,
             "drone": Drone,
             "rover": Rover
@@ -53,12 +49,18 @@ if __name__ == "__main__":
         raise Exception("Please specify a valid vehicle type")
     vehicle = vehicle_type(args.conn)
 
-    # now run their code through our runner
+    # VV add any hooks that we want to the runner below VV
+    
+    # too bad there aren't any (yet) to use as an example
+
+    # ^^                                                ^^
+
     runner.initialize_args(unknown_args)
     
     if vehicle_type in [Drone, Rover]:
         print("Waiting for safety pilot to arm")
-        vehicle._initialize()
+        vehicle._initialize() # _initialize will perform needed state changes/waiting
     runner.run(vehicle)
-
+    
+    # clean up
     vehicle.close()
