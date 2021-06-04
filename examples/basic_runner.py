@@ -12,7 +12,10 @@ class MyScript(BasicRunner):
     def do_stuff(self, drone: Drone):
         # take off to 10m
         drone.takeoff(10)
-        
+
+        # wait until done taking off (to make sure coords in next step are right)
+        drone.await_ready_to_move()
+
         # fly north 10m
         drone.goto_coordinates(calc_location_delta(drone.position, 10, 0))
 
