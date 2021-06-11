@@ -24,3 +24,9 @@ def test_coordinate():
     
     assert round(a.distance(a - VectorNED(100, 0, 0))) == 100
     assert round(a.distance(a - VectorNED(100, 100, 0))) == 141
+
+    delta = a - (a - VectorNED(100, 50, -25))
+    assert isinstance(delta, VectorNED)
+    assert round(delta.north) == 100
+    assert round(delta.east) == 50
+    assert round(delta.down) == -25

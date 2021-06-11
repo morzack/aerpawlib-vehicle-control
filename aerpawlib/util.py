@@ -93,6 +93,22 @@ class Coordinate:
     def __sub__(self, o):
         if isinstance(o, VectorNED):
             return self + VectorNED(-o.north, -o.east, -o.down)
+        elif isinstance(o, Coordinate):
+            # it is, yet again, nontrivial to calculate the distance between coords.
+            # here's one from wikipedia:
+            # https://en.wikipedia.org/wiki/Latitude#Length_of_a_degree_of_latitude
+            # https://en.wikipedia.org/wiki/Longitude#Length_of_a_degree_of_longitude
+            # although since this likely isn't used a lot, i'm using an approximation
+            # https://stackoverflow.com/a/19356480
+
+            lat_mid = (self.lat + o.lat) * math.pi / 360
+
+            d_lat = self.lat - o.lat
+            d_lon = self.lon - o.lon
+
+            return VectorNED(d_lat * (111132.954 - 559.822 * math.cos(2 * lat_mid) + 1.175 * math.cos(4 * lat_mid)),
+                    d_lon * (111132.954 * math.cos(lat_mid)),
+                    o.alt - self.alt)
         else:
             raise TypeError()
 
