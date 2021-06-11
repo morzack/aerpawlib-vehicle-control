@@ -154,8 +154,7 @@ class SquareOff(StateMachine):
         # helper function to send a drone or rover to a specific position
         vehicle.goto_coordinates(vehicle.position + VectorNED(dNorth, dEast), \
                 tolerance=LOCATION_TOLERANCE)
-        vehicle.await_ready_to_move()
-
+    
     @state(name="leg_north")
     def leg_north(self, vehicle: Vehicle):
         print("heading north")
