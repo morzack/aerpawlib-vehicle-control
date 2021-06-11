@@ -4,7 +4,7 @@ special Runner.
 """
 
 from aerpawlib.runner import BasicRunner, entrypoint
-from aerpawlib.util import calc_location_delta
+from aerpawlib.util import VectorNED
 from aerpawlib.vehicle import Drone
 
 class MyScript(BasicRunner):
@@ -17,7 +17,7 @@ class MyScript(BasicRunner):
         drone.await_ready_to_move()
 
         # fly north 10m
-        drone.goto_coordinates(calc_location_delta(drone.position, 10, 0))
+        drone.goto_coordinates(drone.position + VectorNED(10, 0))
 
         # land
         drone.land()

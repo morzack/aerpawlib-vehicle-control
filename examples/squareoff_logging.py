@@ -40,7 +40,7 @@ import time
 from typing import List, TextIO
 
 from aerpawlib.runner import StateMachine, state, background
-from aerpawlib.util import calc_location_delta
+from aerpawlib.util import VectorNED
 from aerpawlib.vehicle import Drone, Rover, Vehicle
 
 FLIGHT_ALT = 3          # m
@@ -121,8 +121,6 @@ class SquareOff(StateMachine):
         print("taking off")
         drone.takeoff(FLIGHT_ALT)
         drone.await_ready_to_move()
-        drone.heading = 0
-        drone.await_ready_to_move()
         return "leg_north"
 
     _position_timer: float=0
@@ -154,9 +152,8 @@ class SquareOff(StateMachine):
 
     def command_leg(self, vehicle: Vehicle, dNorth: float, dEast: float):
         # helper function to send a drone or rover to a specific position
-        current_pos = vehicle.position
-        target_pos = calc_location_delta(current_pos, dNorth, dEast)
-        vehicle.goto_coordinates(target_pos, tolerance=LOCATION_TOLERANCE)
+        vehicle.goto_coordinates(vehicle.position + VectorNED(dNorth, dEast), \
+                tolerance=LOCATION_TOLERANCE)
         vehicle.await_ready_to_move()
 
     @state(name="leg_north")

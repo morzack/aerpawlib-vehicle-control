@@ -1,4 +1,3 @@
-import math
 import dronekit
 from pymavlink import mavutil
 from time import sleep
@@ -55,8 +54,9 @@ class Vehicle:
         return self._has_heartbeat
 
     @property
-    def position(self) -> dronekit.LocationGlobalRelative:
-        return self._vehicle.location.global_relative_frame
+    def position(self) -> util.Coordinate:
+        loc = self._vehicle.location.global_relative_frame
+        return util.Coordinate(loc.lat, loc.lon, loc.alt)
 
     @property
     def battery(self) -> dronekit.Battery:
@@ -83,9 +83,9 @@ class Vehicle:
         while not self._vehicle.armed: sleep(_POLLING_DELAY)
 
     @property
-    def home_coords(self) -> dronekit.LocationGlobalRelative:
+    def home_coords(self) -> util.Coordinate:
         loc = self._vehicle.home_location
-        return dronekit.LocationGlobalRelative(loc.lat, loc.lon)
+        return util.Coordinate(loc.lat, loc.lon)
     
     @property
     def heading(self) -> float:
@@ -141,7 +141,7 @@ class Vehicle:
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")
         self._abortable = True
     
-    def goto_coordinates(self, coordinates: dronekit.LocationGlobalRelative, tolerance: float=2):
+    def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
         """
         Make the vehicle go to provided coordinates. Blocks while waiting for the
         vehicle to be ready to move
@@ -218,24 +218,21 @@ class Drone(Vehicle):
         self._ready_to_move = lambda _: False
         while self.armed: sleep(_POLLING_DELAY)
 
-    def goto_coordinates(self, coordinates: dronekit.LocationGlobalRelative, tolerance: float=2):
+    def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
         self.await_ready_to_move()
-        self._vehicle.simple_goto(coordinates)
+        self._vehicle.simple_goto(coordinates.location())
         
         # TODO in the future we likely want to split alt into a different tolerance
         self._ready_to_move = lambda self: \
-            math.hypot(util.calc_distance(coordinates, self.position),
-                    coordinates.alt - self.position.alt) <= tolerance
+            coordinates.distance(self.position) <= tolerance
 
 class Rover(Vehicle):
-    def goto_coordinates(self, coordinates: dronekit.LocationGlobalRelative, tolerance: float=2):
-        coordinates = dronekit.LocationGlobalRelative(coordinates.lat, coordinates.lon, 0)
-        
+    def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
         self.await_ready_to_move()
-        self._vehicle.simple_goto(coordinates)
+        self._vehicle.simple_goto(util.Coordinate(coordinates.lat, coordinates.lon, 0))
         
         self._ready_to_move = lambda self: \
-            util.calc_distance(coordinates, self.position) <= tolerance
+            coordinates.ground_distance(self.position) <= tolerance
 
 # TODO break this down further:
 # class LAM(Drone)
