@@ -18,15 +18,15 @@ State vis:
 └───┬───┘      └─────┬────┘
     │                │
     ├────────────────┘
-    │                      ┌────┐
-┌───▼───────┐       ┌──────┴────▼┐
-│ leg_north ├───────► in_transit │
-│           │       └───┬────────┘
+    │
+┌───▼───────┐
+│ leg_north ├───────────┐
+│           │           │
 │ leg_west  │           │
 │           │       ┌───▼─────────┐
 │ leg_south ◄───────┤ at_position │
 │           │pick   └───┬──┬────▲─┘
-│ leg_east  │based on   │  └────┘wait 5s
+│ leg_east  │based on   │  └────┘sleep 5s
 └───────────┘current_leg│
                     ┌───▼────┐drone ┌──────┐
                     │ finish ├──────► land │
@@ -124,8 +124,6 @@ class SquareOff(StateMachine):
 
     @state(name="at_position")
     async def at_position(self, _):
-        # wait after each leg by regularly checking a "timer" to see if we can
-        # go to the next state or nor
         await asyncio.sleep(WAIT_TIME)
         
         # advance to the next leg, if there is a next leg

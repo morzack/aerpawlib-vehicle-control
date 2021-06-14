@@ -90,12 +90,6 @@ class StateMachine(_Runner):
     using @state. Each state when run should return a string that is the name
     of the next state to execute. If no next state is provided, it's assumed
     that the state machine is done running.
-
-    A note about blocking: no state in the state machine should be blocking
-    (i.e. don't include while loops or time.sleeps, unless you know what you're
-    doing). By doing that, you're blocking the entire runner thread, which in
-    turn blocks other things such as background tasks. This will be addressed
-    later when proper threading/async patterns are implemented.
     """
 
     _states: Dict[str, _State]
@@ -145,3 +139,9 @@ class StateMachine(_Runner):
 
     def stop(self):
         self._running = False
+
+# helper functions for working with asyncio code
+
+# this is cheap but lets us write code in a more "researcher friendly" way
+in_background = asyncio.ensure_future
+sleep = asyncio.sleep

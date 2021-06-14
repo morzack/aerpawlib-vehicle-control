@@ -8,27 +8,26 @@ Usage:
             --file <.plan file to run>
 
 State vis:
-                         ┌───────────────┐
-┌──────────┐         ┌───┴───────────────▼────┐
-│ take_off ├─────────► take_off_do_in_transit │
-└──────────┘         └──────────┬─────────────┘
-                                │
-       ┌────────────────────────┴───────────────┐
+
+┌──────────┐
+│ take_off │
+└──────┬───┘
+       │
+       ├────────────────────────────────────────┐
        │                                        │
 ┌──────▼────────┐    ┌────────────┐     ┌───────┴─────┐
 │ next_waypoint ├────► in_transit ├─────► at_waypoint │
-└──────┬────────┘    └──┬──────▲──┘     └─────────────┘
-       │                └──────┘
+└──────┬────────┘    └────────────┘     └─────────────┘
+       │
     ┌──▼──┐
     │ rtl │
     └─────┘
 """
 
 from argparse import ArgumentParser
-import asyncio
 from typing import List
 
-from aerpawlib.runner import StateMachine, state
+from aerpawlib.runner import StateMachine, state, in_background
 from aerpawlib.util import Coordinate, Waypoint, read_from_plan
 from aerpawlib.vehicle import Drone
 
@@ -62,7 +61,7 @@ class PreplannedTrajectory(StateMachine):
         
         # go to next waypoint
         coords = Coordinate(*waypoint[1:4])
-        asyncio.ensure_future(drone.goto_coordinates(coords))
+        in_background(drone.goto_coordinates(coords))
         return "in_transit"
 
     @state(name="in_transit")
