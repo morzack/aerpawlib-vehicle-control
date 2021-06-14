@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 import time
 from typing import Callable, Dict, List
@@ -5,7 +6,7 @@ from typing import Callable, Dict, List
 from .vehicle import Vehicle
 
 class _Runner:
-    def run(self, _: Vehicle):
+    async def run(self, _: Vehicle):
         """
         Run the script that's been loaded in -- impl dependent
         """
@@ -43,10 +44,10 @@ class BasicRunner(_Runner):
             if hasattr(method, "_entrypoint"):
                 self._entry = method
 
-    def run(self, vehicle: Vehicle):
+    async def run(self, vehicle: Vehicle):
         self._build()
         if hasattr(self, "_entry"):
-            self._entry.__func__(self, vehicle)
+            await self._entry.__func__(self, vehicle)
         else:
             raise Exception("No @entrypoint declared")
 
@@ -119,21 +120,27 @@ class StateMachine(_Runner):
                 self._background_tasks.append(method)
         if not self._entrypoint:
             raise Exception("There is no initial state")
+    
+    async def _start_background_tasks(self, vehicle: Vehicle):
+        for task in self._background_tasks:
+            async def _task_runner(t=task):
+                while self._running:
+                    await t.__func__(self, vehicle)
+            asyncio.ensure_future(_task_runner())
 
-    def run(self, vehicle: Vehicle):
+    async def run(self, vehicle: Vehicle):
         self._build()
         assert self._entrypoint
         self._current_state = self._entrypoint
         self._running = True
+        await self._start_background_tasks(vehicle)
         while self._running:
             if self._current_state not in self._states:
                 raise Exception("Illegal state")
-            self._current_state = self._states[self._current_state](self, vehicle)
-            for task in self._background_tasks:
-                task.__func__(self, vehicle)
+            self._current_state = await self._states[self._current_state](self, vehicle)
             if self._current_state is None:
                 self.stop()
-            time.sleep(_STATE_DELAY)
+            await asyncio.sleep(_STATE_DELAY)
         self.cleanup()
 
     def stop(self):

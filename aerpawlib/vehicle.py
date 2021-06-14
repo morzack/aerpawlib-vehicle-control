@@ -1,6 +1,7 @@
+import asyncio
 import dronekit
 from pymavlink import mavutil
-from time import sleep
+import time
 from typing import Callable
 
 from . import util
@@ -46,7 +47,7 @@ class Vehicle:
 
         # wait for connection
         while not self._has_heartbeat:
-            sleep(_POLLING_DELAY)
+            time.sleep(_POLLING_DELAY)
 
     # nouns
     @property
@@ -69,18 +70,6 @@ class Vehicle:
     @property
     def armed(self) -> bool:
         return self._vehicle.armed
-
-    @armed.setter
-    def armed(self, value):
-        # dronekit doesn't guarentee that the vehicle arms immediately (or at all!)
-        # this pattern keeps the funky logic out of the experimenter's script
-        # to make sure that things are safer overall
-        if not self._vehicle.is_armable:
-            raise Exception("Not ready to arm") # in this case, the script dies completely
-                                                # obviously not optimal *unless* we are
-                                                # certain that a scipt always arms once
-        self._vehicle.armed = value
-        while not self._vehicle.armed: sleep(_POLLING_DELAY)
 
     @property
     def home_coords(self) -> util.Coordinate:
@@ -110,12 +99,12 @@ class Vehicle:
             return self._ready_to_move.__func__(self)
         return self._ready_to_move(self)                    # function
     
-    def await_ready_to_move(self):
+    async def await_ready_to_move(self):
         """
         Helper blocking function that waits for the vehicle to finish the current
         action/movement that it was instructed to do
         """
-        while not self.done_moving(): sleep(_POLLING_DELAY)
+        while not self.done_moving(): await asyncio.sleep(_POLLING_DELAY)
 
     def _abort(self):
         # TODO this should be something different in the future.
@@ -130,18 +119,29 @@ class Vehicle:
     def close(self):
         self._vehicle.close()
 
+    async def set_armed(self, value):
+        # dronekit doesn't guarentee that the vehicle arms immediately (or at all!)
+        # this pattern keeps the funky logic out of the experimenter's script
+        # to make sure that things are safer overall
+        if not self._vehicle.is_armable:
+            raise Exception("Not ready to arm") # in this case, the script dies completely
+                                                # obviously not optimal *unless* we are
+                                                # certain that a scipt always arms once
+        self._vehicle.armed = value
+        while not self._vehicle.armed: await asyncio.sleep(_POLLING_DELAY)
+
     def _initialize(self):
         """
         Generic pre-mission manipulation of the vehicle into a state that is
         acceptable. MUST be called before anything else. Though this is done by
         the runner.
         """
-        while not self.armed: sleep(_POLLING_DELAY)
+        while not self.armed: time.sleep(_POLLING_DELAY)
 
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")
         self._abortable = True
     
-    def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
+    async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
         """
         Make the vehicle go to provided coordinates. Blocks while waiting for the
         vehicle to be ready to move
@@ -152,14 +152,13 @@ class Vehicle:
         raise Exception("Generic vehicles can't go to coordinates!")
 
 class Drone(Vehicle):
-    @Vehicle.heading.setter
-    def heading(self, heading: float):
+    async def set_heading(self, heading: float):
         """
         Blocking way to set the heading of the vehicle (in absolute deg).
         Can be paired up with += to use relative coordinates -- i.e. we will
         never turn relative to our current heading
         """
-        self.await_ready_to_move()
+        await self.await_ready_to_move()
 
         heading %= 360
         
@@ -184,12 +183,14 @@ class Drone(Vehicle):
             return turn_diff <= _TURN_TOLERANCE_DEG
         self._ready_to_move = _pointed_at_heading
 
-    def takeoff(self, target_alt: float, min_alt_tolerance: float=0.95):
+        while not _pointed_at_heading(self): await asyncio.sleep(_POLLING_DELAY)
+
+    async def takeoff(self, target_alt: float, min_alt_tolerance: float=0.95):
         """
         Blocking function (waits for the drone to be ready to move) that makes
         a drone wait to be armed and then takes off to a specific altituide
         """
-        self.await_ready_to_move()        
+        await self.await_ready_to_move()        
 
         # TODO the below logic needs to be tested at the field.
         # wait for sticks to return to center by taking rolling avg (30 frames)
@@ -198,41 +199,50 @@ class Drone(Vehicle):
             rcin_4.pop(0)
             rcin_4.append(message.chan4_raw)
         self._vehicle.add_message_listener("RC_CHANNELS", _rcin_4_listener)
-        while not 1450 <= (sum(rcin_4) / len(rcin_4)) <= 1550: sleep(_POLLING_DELAY)
+        while not 1450 <= (sum(rcin_4) / len(rcin_4)) <= 1550: await asyncio.sleep(_POLLING_DELAY)
         self._vehicle.remove_message_listener("RC_CHANNELS", _rcin_4_listener)
         
         self._vehicle.simple_takeoff(target_alt)
         
-        self._ready_to_move = lambda self: self.position.alt >= target_alt * min_alt_tolerance
+        taken_off = lambda self: self.position.alt >= target_alt * min_alt_tolerance
+        self._ready_to_move = taken_off
 
-    def land(self):
+        while not taken_off(self): await asyncio.sleep(_POLLING_DELAY)
+
+    async def land(self):
         """
         Land the drone and wait for it to be disarmed (BLOCKING).
         No further movement is allowed (for now!)
         """
-        self.await_ready_to_move()
+        await self.await_ready_to_move()
 
         self._abortable = False
         self._vehicle.mode = dronekit.VehicleMode("LAND")
 
         self._ready_to_move = lambda _: False
-        while self.armed: sleep(_POLLING_DELAY)
+        while self.armed: await asyncio.sleep(_POLLING_DELAY)
 
-    def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
-        self.await_ready_to_move()
+    async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
+        await self.await_ready_to_move()
         self._vehicle.simple_goto(coordinates.location())
         
         # TODO in the future we likely want to split alt into a different tolerance
-        self._ready_to_move = lambda self: \
+        at_coords = lambda self: \
             coordinates.distance(self.position) <= tolerance
+        self._ready_to_move = at_coords
+
+        while not at_coords(self): await asyncio.sleep(_POLLING_DELAY)
 
 class Rover(Vehicle):
-    def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
-        self.await_ready_to_move()
+    async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
+        await self.await_ready_to_move()
         self._vehicle.simple_goto(util.Coordinate(coordinates.lat, coordinates.lon, 0))
         
-        self._ready_to_move = lambda self: \
+        at_coords = lambda self: \
             coordinates.ground_distance(self.position) <= tolerance
+        self._ready_to_move = at_coords
+
+        while not at_coords(self): await asyncio.sleep(_POLLING_DELAY)
 
 # TODO break this down further:
 # class LAM(Drone)

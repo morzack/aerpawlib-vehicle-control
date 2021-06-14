@@ -25,6 +25,7 @@ State vis:
 """
 
 from argparse import ArgumentParser
+import asyncio
 from typing import List
 
 from aerpawlib.runner import StateMachine, state
@@ -43,24 +44,15 @@ class PreplannedTrajectory(StateMachine):
         self._waypoints = read_from_plan(args.file)
 
     @state(name="take_off", first=True)
-    def take_off(self, drone: Drone):
+    async def take_off(self, drone: Drone):
         # take off to the alt of the first waypoint
         takeoff_alt = self._waypoints[self._current_waypoint][3]
-        drone.takeoff(takeoff_alt)
-        print(f"Taking off to {takeoff_alt}")
-        return "take_off_do_in_transit"
-
-    @state(name="take_off_do_in_transit")
-    def take_off_do_in_transit(self, drone: Drone):
-        # wait for the drone to get to the needed alt, and then point north
-        if drone.done_moving():
-            drone.heading = 0
-            drone.await_ready_to_move()
-            return "next_waypoint"
-        return "take_off_do_in_transit"
+        print(f"Taking off to {takeoff_alt}m")
+        await drone.takeoff(takeoff_alt)
+        return "next_waypoint"
 
     @state(name="next_waypoint")
-    def next_waypoint(self, drone: Drone):
+    async def next_waypoint(self, drone: Drone):
         # figure out the next waypoint to go to
         self._current_waypoint += 1
         print(f"Waypoint {self._current_waypoint}")
@@ -70,29 +62,27 @@ class PreplannedTrajectory(StateMachine):
         
         # go to next waypoint
         coords = Coordinate(*waypoint[1:4])
-        drone.goto_coordinates(coords)
+        asyncio.ensure_future(drone.goto_coordinates(coords))
         return "in_transit"
 
     @state(name="in_transit")
-    def in_transit(self, drone: Drone):
-        # wait for the drone to arrive at the next waypoint
-        if drone.done_moving():
-            return "at_waypoint"
-        return "in_transit"
+    async def in_transit(self, drone: Drone):
+        # wait for the drone to arrive at the next waypoint and then transition
+        await drone.await_ready_to_move()
+        return "at_waypoint"
 
     @state(name="at_waypoint")
-    def at_waypoint(self, _):
+    async def at_waypoint(self, _):
         # perform any extra functionality to be done at a waypoint
         return "next_waypoint"
 
     @state(name="rtl")
-    def rtl(self, drone: Drone):
+    async def rtl(self, drone: Drone):
         # return to the take off location and stop the script
         # note that this blocks, we assume that any background tasks (ex:
         # collecting data) are complete
         home_coords = Coordinate(
                 drone.home_coords.lat, drone.home_coords.lon, drone.position.alt)
-        drone.goto_coordinates(home_coords)
-        drone.await_ready_to_move()
-        drone.land()
+        await drone.goto_coordinates(home_coords)
+        await drone.land()
         print("done!")

@@ -13,6 +13,7 @@ example:
 from .runner import BasicRunner, StateMachine, _Runner
 from .vehicle import Drone, Rover, Vehicle
 
+import asyncio
 import importlib
 import inspect
 
@@ -60,7 +61,8 @@ if __name__ == "__main__":
     if vehicle_type in [Drone, Rover]:
         print("Waiting for safety pilot to arm")
         vehicle._initialize() # _initialize will perform needed state changes/waiting
-    runner.run(vehicle)
+    
+    asyncio.run(runner.run(vehicle))
     
     # clean up
     vehicle.close()

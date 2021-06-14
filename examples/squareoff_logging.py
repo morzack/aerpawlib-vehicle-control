@@ -34,6 +34,7 @@ State vis:
 """
 
 from argparse import ArgumentParser
+import asyncio
 import csv
 import datetime
 import time
@@ -43,7 +44,7 @@ from aerpawlib.runner import StateMachine, state, background
 from aerpawlib.util import VectorNED
 from aerpawlib.vehicle import Drone, Rover, Vehicle
 
-FLIGHT_ALT = 3          # m
+FLIGHT_ALT = 30          # m
 SQUARE_SIZE = 10        # m
 LOCATION_TOLERANCE = 3  # m -- ~2 is safe in general, use 3 for the rover in SITL
 WAIT_TIME = 5           # s
@@ -84,15 +85,13 @@ class SquareOff(StateMachine):
         self._csv_writer = csv.writer(self._log_file)
     
     @background
-    def periodic_dump(self, vehicle: Vehicle):
+    async def periodic_dump(self, vehicle: Vehicle):
         # background task that (using a timer) periodically dumps vehicle status
         # into a provided file
-        if time.time() > self._next_sample:
-            self._next_sample = time.time() + self._sampling_delay
-            if not vehicle.connected:
-                return
-            _dump_to_csv(vehicle, self._cur_line, self._csv_writer)
-            self._cur_line += 1
+        self._next_sample = time.time() + self._sampling_delay
+        _dump_to_csv(vehicle, self._cur_line, self._csv_writer)
+        self._cur_line += 1
+        await asyncio.sleep(self._sampling_delay)
 
     def cleanup(self):
         # called by the runner at the end of execution to clean up lingering
@@ -103,7 +102,7 @@ class SquareOff(StateMachine):
     _current_leg = 0
 
     @state(name="start", first=True)
-    def start(self, vehicle: Vehicle):
+    async def start(self, vehicle: Vehicle):
         # determine the type of the vehicle and branch execution based on it to
         # allow for more generic scripts
         if isinstance(vehicle, Drone):
@@ -113,35 +112,22 @@ class SquareOff(StateMachine):
         raise Exception("Vehicle not supported")
 
     @state(name="take_off")
-    def take_off(self, drone: Drone):
+    async def take_off(self, drone: Drone):
         # only reachable by drones; take off and (blocking) wait for it to reach
         # a specified alt
         # this is a good example of *willingly* blocking, as we don't need the
         # @background task (logging) to happen while taking off.
         print("taking off")
-        drone.takeoff(FLIGHT_ALT)
-        drone.await_ready_to_move()
+        await drone.takeoff(FLIGHT_ALT)
+        print("taken off")
         return "leg_north"
 
-    _position_timer: float=0
-    
-    @state(name="in_transit")
-    def in_transit(self, vehicle: Vehicle):
-        # called in between legs while waiting for the vehicle to get to a location
-        if not vehicle.done_moving():
-            return "in_transit"
-
-        # start our timer that holds up at a position when we finish a leg
-        self._position_timer = time.time() + WAIT_TIME
-        return "at_position"
-    
     @state(name="at_position")
-    def at_position(self, _):
+    async def at_position(self, _):
         # wait after each leg by regularly checking a "timer" to see if we can
         # go to the next state or nor
-        if time.time() <= self._position_timer:
-            return "at_position"
-
+        await asyncio.sleep(WAIT_TIME)
+        
         # advance to the next leg, if there is a next leg
         self._current_leg += 1
         if self._current_leg < len(self._legs):
@@ -150,37 +136,37 @@ class SquareOff(StateMachine):
         # if there are no more legs, complete the script
         return "finish"
 
-    def command_leg(self, vehicle: Vehicle, dNorth: float, dEast: float):
+    async def command_leg(self, vehicle: Vehicle, dNorth: float, dEast: float):
         # helper function to send a drone or rover to a specific position
-        vehicle.goto_coordinates(vehicle.position + VectorNED(dNorth, dEast), \
+        await vehicle.goto_coordinates(vehicle.position + VectorNED(dNorth, dEast), \
                 tolerance=LOCATION_TOLERANCE)
     
     @state(name="leg_north")
-    def leg_north(self, vehicle: Vehicle):
+    async def leg_north(self, vehicle: Vehicle):
         print("heading north")
-        self.command_leg(vehicle, SQUARE_SIZE, 0)
-        return "in_transit"
+        await self.command_leg(vehicle, SQUARE_SIZE, 0)
+        return "at_position"
     
     @state(name="leg_west")
-    def leg_west(self, vehicle: Vehicle):
+    async def leg_west(self, vehicle: Vehicle):
         print("heading west")
-        self.command_leg(vehicle, 0, -SQUARE_SIZE)
-        return "in_transit"
+        await self.command_leg(vehicle, 0, -SQUARE_SIZE)
+        return "at_position"
     
     @state(name="leg_south")
-    def leg_south(self, vehicle: Vehicle):
+    async def leg_south(self, vehicle: Vehicle):
         print("heading south")
-        self.command_leg(vehicle, -SQUARE_SIZE, 0)
-        return "in_transit"
+        await self.command_leg(vehicle, -SQUARE_SIZE, 0)
+        return "at_position"
     
     @state(name="leg_east")
-    def leg_east(self, vehicle: Vehicle):
+    async def leg_east(self, vehicle: Vehicle):
         print("heading east")
-        self.command_leg(vehicle, 0, SQUARE_SIZE)
-        return "in_transit"
+        await self.command_leg(vehicle, 0, SQUARE_SIZE)
+        return "at_position"
 
     @state(name="finish")
-    def finish(self, vehicle: Vehicle):
+    async def finish(self, vehicle: Vehicle):
         # when done with the script, execute a special state depending on
         # vehicle type.
         if isinstance(vehicle, Drone):
@@ -192,8 +178,8 @@ class SquareOff(StateMachine):
             # remember that returning nothing == script over
 
     @state(name="land")
-    def land(self, drone: Drone):
+    async def land(self, drone: Drone):
         # (blocking) land the drone. We can block here because we don't care
         # if @background tasks keep (in this case) logging
-        drone.land()
+        await drone.land()
         print("done!")
