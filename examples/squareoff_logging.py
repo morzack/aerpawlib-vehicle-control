@@ -40,13 +40,13 @@ import datetime
 import time
 from typing import List, TextIO
 
-from aerpawlib.runner import StateMachine, state, background
+from aerpawlib.runner import StateMachine, state, background, timed_state
 from aerpawlib.util import VectorNED
 from aerpawlib.vehicle import Drone, Rover, Vehicle
 
-FLIGHT_ALT = 30          # m
+FLIGHT_ALT = 5          # m
 SQUARE_SIZE = 10        # m
-LOCATION_TOLERANCE = 3  # m -- ~2 is safe in general, use 3 for the rover in SITL
+LOCATION_TOLERANCE = 2  # m -- ~2 is safe in general, use 3 for the rover in SITL
 WAIT_TIME = 5           # s
 
 def _dump_to_csv(vehicle: Vehicle, line_num: int, writer):
@@ -113,19 +113,15 @@ class SquareOff(StateMachine):
 
     @state(name="take_off")
     async def take_off(self, drone: Drone):
-        # only reachable by drones; take off and (blocking) wait for it to reach
+        # only reachable by drones; take off and wait for it to reach
         # a specified alt
-        # this is a good example of *willingly* blocking, as we don't need the
-        # @background task (logging) to happen while taking off.
         print("taking off")
         await drone.takeoff(FLIGHT_ALT)
         print("taken off")
         return "leg_north"
 
-    @state(name="at_position")
+    @timed_state(name="at_position", duration=WAIT_TIME)
     async def at_position(self, _):
-        await asyncio.sleep(WAIT_TIME)
-        
         # advance to the next leg, if there is a next leg
         self._current_leg += 1
         if self._current_leg < len(self._legs):
@@ -177,7 +173,5 @@ class SquareOff(StateMachine):
 
     @state(name="land")
     async def land(self, drone: Drone):
-        # (blocking) land the drone. We can block here because we don't care
-        # if @background tasks keep (in this case) logging
         await drone.land()
         print("done!")

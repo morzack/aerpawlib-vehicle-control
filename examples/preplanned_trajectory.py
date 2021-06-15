@@ -27,7 +27,7 @@ State vis:
 from argparse import ArgumentParser
 from typing import List
 
-from aerpawlib.runner import StateMachine, state, in_background
+from aerpawlib.runner import StateMachine, state, in_background, timed_state
 from aerpawlib.util import Coordinate, Waypoint, read_from_plan
 from aerpawlib.vehicle import Drone
 
@@ -69,10 +69,11 @@ class PreplannedTrajectory(StateMachine):
         # wait for the drone to arrive at the next waypoint and then transition
         await drone.await_ready_to_move()
         return "at_waypoint"
-
-    @state(name="at_waypoint")
+    
+    @timed_state(name="at_waypoint", duration=3)
     async def at_waypoint(self, _):
-        # perform any extra functionality to be done at a waypoint
+        # perform any extra functionality to be done at a waypoint, but stay
+        # there for at least 3 seconds
         return "next_waypoint"
 
     @state(name="rtl")

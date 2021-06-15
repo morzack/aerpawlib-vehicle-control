@@ -1,6 +1,6 @@
 import asyncio
+from enum import Enum, auto
 import inspect
-import time
 from typing import Callable, Dict, List
 
 from .vehicle import Vehicle
@@ -51,6 +51,10 @@ class BasicRunner(_Runner):
         else:
             raise Exception("No @entrypoint declared")
 
+class _StateType(Enum):
+    STANDARD = auto()
+    TIMED = auto()
+
 class _State:
     _name: str
     _func: _Runnable
@@ -58,15 +62,58 @@ class _State:
     def __init__(self, func: _Runnable, name: str):
         self._name = name
         self._func = func
-
-    def __call__(self, runner: _Runner, vehicle: Vehicle):
-        return self._func.__func__(runner, vehicle)
+    
+    async def run(self, runner: _Runner, vehicle: Vehicle) -> str:
+        if self._func._state_type == _StateType.STANDARD:
+            return await self._func.__func__(runner, vehicle)
+        elif self._func._state_type == _StateType.TIMED:
+            running = True
+            async def _bg():
+                nonlocal running
+                last_state = ""
+                while running:
+                    last_state = await self._func.__func__(runner, vehicle)
+                    if not self._func._state_loop:
+                        running = False
+                    await asyncio.sleep(_STATE_DELAY)
+                return last_state
+            r = asyncio.ensure_future(_bg())
+            # order here is important and stops a race condition
+            await asyncio.sleep(self._func._state_duration)
+            running = False
+            next_state = await r 
+            return next_state
+        return ""
 
 def state(name: str, first: bool=False):
+    """
+    Standard state. Will finish executing when the func provided in is done, at
+    which point it transitions to the state (string) returned.
+    """
+    if name == "":
+        raise Exception("state name can't be \"\"")
     def decorator(func):
         func._is_state = True
         func._state_name = name
         func._state_first = first
+        func._state_type = _StateType.STANDARD
+        return func
+    return decorator
+
+def timed_state(name: str, duration: float, loop=False, first: bool=False):
+    """
+    Timed state. Will wait duration seconds before transitioning to the next
+    state. If loop is true, the function will be repeatedly called until the
+    timer is complete. This guarentees that the state will persist for at least
+    *duration* seconds.
+    """
+    def decorator(func):
+        func._is_state = True
+        func._state_name = name
+        func._state_first = first
+        func._state_type = _StateType.TIMED
+        func._state_duration = duration
+        func._state_loop = loop
         return func
     return decorator
 
@@ -130,8 +177,9 @@ class StateMachine(_Runner):
         await self._start_background_tasks(vehicle)
         while self._running:
             if self._current_state not in self._states:
+                print(self._current_state)
                 raise Exception("Illegal state")
-            self._current_state = await self._states[self._current_state](self, vehicle)
+            self._current_state = await self._states[self._current_state].run(self, vehicle)
             if self._current_state is None:
                 self.stop()
             await asyncio.sleep(_STATE_DELAY)
