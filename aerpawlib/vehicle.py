@@ -143,8 +143,7 @@ class Vehicle:
     
     async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
         """
-        Make the vehicle go to provided coordinates. Blocks while waiting for the
-        vehicle to be ready to move
+        Make the vehicle go to provided coordinates
 
         tolerance is the min distance away from the coordinates, in meters, that is
         acceptable
@@ -154,9 +153,8 @@ class Vehicle:
 class Drone(Vehicle):
     async def set_heading(self, heading: float):
         """
-        Blocking way to set the heading of the vehicle (in absolute deg).
-        Can be paired up with += to use relative coordinates -- i.e. we will
-        never turn relative to our current heading
+        Set the heading of the vehicle (in absolute deg).
+        To use "relative" coordinates, you can do `set_heading(drone.pos + x)`
         """
         await self.await_ready_to_move()
 
@@ -187,8 +185,8 @@ class Drone(Vehicle):
 
     async def takeoff(self, target_alt: float, min_alt_tolerance: float=0.95):
         """
-        Blocking function (waits for the drone to be ready to move) that makes
-        a drone wait to be armed and then takes off to a specific altituide
+        Waits for the drone to be ready to move and then take off to a specific
+        altitude
         """
         await self.await_ready_to_move()        
 
@@ -211,7 +209,7 @@ class Drone(Vehicle):
 
     async def land(self):
         """
-        Land the drone and wait for it to be disarmed (BLOCKING).
+        Land the drone and wait for it to be disarmed.
         No further movement is allowed (for now!)
         """
         await self.await_ready_to_move()

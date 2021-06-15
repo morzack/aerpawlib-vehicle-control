@@ -121,10 +121,7 @@ _BackgroundTask = Callable[[_Runner, Vehicle], None]
 
 def background(func):
     """
-    Designate a function to be run in parallel to a given StateMachine. This
-    functionality only works if the state machine is designed to be non-blocking
-
-    so, there's an implcit TODO here to use threading.
+    Designate a function to be run in parallel to a given StateMachine.
     """
     func._is_background = True
     return func

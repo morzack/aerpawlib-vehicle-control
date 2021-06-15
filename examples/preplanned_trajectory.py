@@ -79,8 +79,6 @@ class PreplannedTrajectory(StateMachine):
     @state(name="rtl")
     async def rtl(self, drone: Drone):
         # return to the take off location and stop the script
-        # note that this blocks, we assume that any background tasks (ex:
-        # collecting data) are complete
         home_coords = Coordinate(
                 drone.home_coords.lat, drone.home_coords.lon, drone.position.alt)
         await drone.goto_coordinates(home_coords)
