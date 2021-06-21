@@ -1,3 +1,9 @@
+"""
+Collection of execution frameworks that can be extended to make scripts
+runnable using aerpawlib. The most basic framework is `Runner` -- any custom
+frameworks *must* extend it to be executable.
+"""
+
 import asyncio
 from enum import Enum, auto
 import inspect
@@ -5,37 +11,63 @@ from typing import Callable, Dict, List
 
 from .vehicle import Vehicle
 
-class _Runner:
+class Runner:
+    """
+    Base execution framework -- generally, this should only be used to build
+    new runners. Only exposes the base functions needed to interface with
+    aerpawlib's runner.
+    """
     async def run(self, _: Vehicle):
         """
-        Run the script that's been loaded in -- impl dependent
+        Run the script that's been loaded in -- this is what implements the
+        core logic of whatever's being run. The `aerpawlib.vehicle.Vehicle`
+        passed in will have been initialized externally by the launch script.
+
+        For other runners provided with aerpawlib (ex: `StateMachine`,
+        `BasicRunner`), you should avoid overriding this.
         """
         pass
     
     def initialize_args(self, _: List[str]):
         """
-        Can be overridden to parse and handle extra args passed to the runner
+        Can be overridden to parse and handle extra command line arguments
+        passed to the runner. The easiest way to interact with them is through
+        `argparse` -- check out `examples/squareoff_logging.py` for an example
+        of this.
+
+        This is expected to be overridden by the user script if it is used.
         """
         pass
     
     def cleanup(self):
         """
-        Additional user-provided functionality that is called when the script
-        exits
+        Any additional user-provided functionality that is called when the
+        script exits should be implemented here.
+
+        This is expected to be overridden by the user script if it is used.
         """
         pass
 
-_Runnable = Callable[[_Runner, Vehicle], str]
+_Runnable = Callable[[Runner, Vehicle], str]
 
 def entrypoint(func):
+    """
+    Decorator used to identify the entry point used by `BasicRunner` driven
+    scripts.
+
+    The function decorated by this is expected to be `async`
+    """
     func._entrypoint = True
     return func
 
-class BasicRunner(_Runner):
+class BasicRunner(Runner):
     """
-    BasicRunners have a single entry point (specified by @entrypoint) that is
-    executed when the script is run. The function provided can be anything,
-    blocking doesn't matter.
+    BasicRunners have a single entry point (specified by `entrypoint`) that is
+    executed when the script is run. The function provided can be anything, as
+    it will be run in parallel to background services used by aerpawlib.
+
+    For an example of a minimum viable `BasicRunner`, check out
+    `examples/basic_runner.py`
     """
     def _build(self):
         for _, method in inspect.getmembers(self):
@@ -63,7 +95,7 @@ class _State:
         self._name = name
         self._func = func
     
-    async def run(self, runner: _Runner, vehicle: Vehicle) -> str:
+    async def run(self, runner: Runner, vehicle: Vehicle) -> str:
         if self._func._state_type == _StateType.STANDARD:
             return await self._func.__func__(runner, vehicle)
         elif self._func._state_type == _StateType.TIMED:
@@ -87,8 +119,12 @@ class _State:
 
 def state(name: str, first: bool=False):
     """
-    Standard state. Will finish executing when the func provided in is done, at
-    which point it transitions to the state (string) returned.
+    Decorator used to specify a state used by a `StateMachine`. Functions
+    decorated using this are expected to be given a name and return a string
+    that is the name of the next state to transition to/run. If no next state
+    is returned, then the `StateMachine` will (gracefully) stop.
+
+    The function decorated by this is expected to be `async`
     """
     if name == "":
         raise Exception("state name can't be \"\"")
@@ -102,10 +138,15 @@ def state(name: str, first: bool=False):
 
 def timed_state(name: str, duration: float, loop=False, first: bool=False):
     """
-    Timed state. Will wait duration seconds before transitioning to the next
-    state. If loop is true, the function will be repeatedly called until the
-    timer is complete. This guarentees that the state will persist for at least
-    *duration* seconds.
+    Timed state. Will wait `duration` seconds before transitioning to the next
+    state. If `loop` is true, the decorated function will be continuously
+    called until the duration has expired.
+
+    This guarentees that the state will persist for *at least* `duration`
+    seconds, so timed states will continue running for longer than that if the
+    decorated function lasts longer than the timer.
+
+    The function decorated by this is expected to be `async`
     """
     def decorator(func):
         func._is_state = True
@@ -117,23 +158,33 @@ def timed_state(name: str, duration: float, loop=False, first: bool=False):
         return func
     return decorator
 
-_BackgroundTask = Callable[[_Runner, Vehicle], None]
+_BackgroundTask = Callable[[Runner, Vehicle], None]
 
 def background(func):
     """
     Designate a function to be run in parallel to a given StateMachine.
+    By `asyncio`'s design, background function's don't have to take
+    thread-safety into consideration.
+
+    The function decorated by this is expected to be `async`
     """
     func._is_background = True
     return func
 
 _STATE_DELAY = 0.01 # s between each time the state update is called
 
-class StateMachine(_Runner):
+class StateMachine(Runner):
     """
-    A StateMachine is a type of runner that consists of various states declared
-    using @state. Each state when run should return a string that is the name
-    of the next state to execute. If no next state is provided, it's assumed
-    that the state machine is done running.
+    A `StateMachine` is a type of runner that consists of various states
+    declared using the `state` decorator. Each state, when run, should return a
+    string that is the name of the next state to execute. If no next state is
+    provided, it's assumed that the state machine is done running.
+
+    `StateMachine` also supports `background` tasks, which are run in parallel
+    to any state execution.
+
+    For an example of a `StateMachine` in action, check out
+    `examples/squareoff_logging.py`
     """
 
     _states: Dict[str, _State]
@@ -183,6 +234,11 @@ class StateMachine(_Runner):
         self.cleanup()
 
     def stop(self):
+        """
+        Call `stop` to stop the execution of the `StateMachine` after
+        completion of the current state. This is equivalent to returning `None`
+        at the end of a state's execution.
+        """
         self._running = False
 
 # helper functions for working with asyncio code

@@ -1,7 +1,6 @@
 """
-aerpawlib
-
-AERPAW tools and frameworks used for scripting
+Set of tools and frameworks that can be used to quickly write scripts that run
+on the AERPAW platform.
 """
 
 __version__ = "0.0.1"

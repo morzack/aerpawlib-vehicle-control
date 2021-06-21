@@ -10,7 +10,7 @@ example:
             --vehicle drone
 """
 
-from .runner import BasicRunner, StateMachine, _Runner
+from .runner import BasicRunner, StateMachine, Runner
 from .vehicle import Drone, Rover, Vehicle
 
 import asyncio
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     for _, val in inspect.getmembers(experimenter_script):
         if not inspect.isclass(val):
             continue
-        if not issubclass(val, _Runner):
+        if not issubclass(val, Runner):
             continue
         if val in [StateMachine, BasicRunner]:
             continue

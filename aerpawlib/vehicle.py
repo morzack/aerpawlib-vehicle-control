@@ -1,3 +1,7 @@
+"""
+Core logic surrounding the various `Vehicle`s available to aerpawlib user
+scripts
+"""
 import asyncio
 import dronekit
 from pymavlink import mavutil
@@ -10,6 +14,10 @@ from . import util
 _POLLING_DELAY = 0.01 # s
 
 class Vehicle:
+    """
+    Overarching "generic vehicle" type. Implements all functionality, excluding
+    movement commands (which are *always* vehicle specific).
+    """
     _vehicle: dronekit.Vehicle
     _has_heartbeat: bool
     
@@ -52,19 +60,35 @@ class Vehicle:
     # nouns
     @property
     def connected(self) -> bool:
+        """
+        True if receiving heartbeats, False otherwise
+        """
         return self._has_heartbeat
 
     @property
     def position(self) -> util.Coordinate:
+        """
+        Get the current position of the Vehicle as a `util.Coordinate`
+        """
         loc = self._vehicle.location.global_relative_frame
         return util.Coordinate(loc.lat, loc.lon, loc.alt)
 
     @property
     def battery(self) -> dronekit.Battery:
+        """
+        Get the status of the battery. Wraps `dronekit.Battery`, which makes
+        the `voltage`, `current`, and `level` available
+        """
         return self._vehicle.battery
 
     @property
     def gps(self) -> dronekit.GPSInfo:
+        """
+        Get the current GPS status (for gps_0 -- can be changed in the future).
+        Wraps `dronekit.GPSInfo`, which exposes the `fix_type` (0-1: no fix,
+        2: 2d fix, 3: 3d fix), and number of `satellites_visible`, among other
+        things.
+        """
         return self._vehicle.gps_0
 
     @property
@@ -83,12 +107,12 @@ class Vehicle:
     # special things
     def done_moving(self) -> bool:
         """
-        See if the vehicle is ready to move (i.e. if the last movement command is complete)
-
-        Also makes sure that the vehicle is connected and that we haven't aborted.
+        See if the vehicle is ready to move (i.e. if the last movement command
+        has been completed). Also makes sure that the vehicle is connected and
+        that we haven't aborted.
         
-        This is more accurately a function that describes the vehicle's willingness
-        to take a new command
+        This is more accurately a function that describes the vehicle's
+        willingness to take a new command.
         """
         if not self.connected or self._aborted:
             return False
@@ -101,8 +125,10 @@ class Vehicle:
     
     async def await_ready_to_move(self):
         """
-        Helper blocking function that waits for the vehicle to finish the current
-        action/movement that it was instructed to do
+        Helper function that blocks execution and waits for the vehicle to
+        finish the current action/movement that it was instructed to do.
+
+        Makes use of `Vehicle.done_moving`
         """
         while not self.done_moving(): await asyncio.sleep(_POLLING_DELAY)
 
@@ -117,9 +143,20 @@ class Vehicle:
 
     # verbs
     def close(self):
+        """
+        Clean up the `Vehicle` object/any state
+        """
         self._vehicle.close()
 
-    async def set_armed(self, value):
+    async def set_armed(self, value: bool):
+        """
+        Arm or disarm this vehicle, and wait for it to be armed (if possible)
+
+        Dronekit doesn't guarentee that the vehicle arms immediately (or at
+        all!), so this will block execution until the vehicle has been armed.
+
+        If the vehicle can't be armed, an Exception is raised.
+        """
         # dronekit doesn't guarentee that the vehicle arms immediately (or at all!)
         # this pattern keeps the funky logic out of the experimenter's script
         # to make sure that things are safer overall
@@ -143,18 +180,36 @@ class Vehicle:
     
     async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
         """
-        Make the vehicle go to provided coordinates
+        Make the vehicle go to provided coordinates.
 
-        tolerance is the min distance away from the coordinates, in meters, that is
-        acceptable
+        `tolerance` is the min distance away from the coordinates, in meters,
+        that is acceptable.
+
+        This method is only available for vehicles built off the `Vehicle` type
+        (ex: `Drone` or `Rover`)
         """
         raise Exception("Generic vehicles can't go to coordinates!")
 
 class Drone(Vehicle):
+    """
+    Drone vehicle type. Implements all functionality that AERPAW's drones
+    expose to user scripts, which includes basic movement control (going to
+    coords, turning, landing).
+    """
     async def set_heading(self, heading: float):
         """
         Set the heading of the vehicle (in absolute deg).
-        To use "relative" coordinates, you can do `set_heading(drone.pos + x)`
+        
+        To turn a relative # of degrees, you can do something like
+        `set_heading(drone.pos + x)`
+
+        NOTE that this function still needs to be tested kind of extensively.
+        Ardupilot has a few internal states that control the heading, and when
+        it's manually set via a CMD_CONDITION_YAW command over mavlink, it's
+        possible for it to either be ignored, be accepted and then ignored, or
+        be accepted, switch the drone's internal turning state to be manually
+        controlled, and then be stuck that way (i.e. the drone won't auto-fly
+        in a "straight" direction). Basically, be warned.
         """
         await self.await_ready_to_move()
 
@@ -185,12 +240,15 @@ class Drone(Vehicle):
 
     async def takeoff(self, target_alt: float, min_alt_tolerance: float=0.95):
         """
-        Waits for the drone to be ready to move and then take off to a specific
-        altitude
+        Make the drone take off to a specific altitude, and blocks until the
+        drone has reached that altitude.
+
+        Additionally waits to make sure that channel 4 of RCIN (used for yaw)
+        is centered to avoid yaw during takeoff if the drone was *just* armed.
         """
         await self.await_ready_to_move()        
 
-        # TODO the below logic needs to be tested at the field.
+        # TODO the below logic needs to be tested at the field (and likely made less brittle)
         # wait for sticks to return to center by taking rolling avg (30 frames)
         rcin_4 = [-999] * 30 # use something obviously out of range
         def _rcin_4_listener(_, __, message):
@@ -209,8 +267,9 @@ class Drone(Vehicle):
 
     async def land(self):
         """
-        Land the drone and wait for it to be disarmed.
-        No further movement is allowed (for now!)
+        Land the drone at its current position and block while waiting for it
+        to be disarmed. No further movement is allowed after the drone has been
+        landed (for now, may be changed later).
         """
         await self.await_ready_to_move()
 
@@ -232,6 +291,11 @@ class Drone(Vehicle):
         while not at_coords(self): await asyncio.sleep(_POLLING_DELAY)
 
 class Rover(Vehicle):
+    """
+    Rover vehicle type. Implements all functionality that AERPAW's rovers
+    expose to user scripts, which includes basic movement control (going to
+    coords).
+    """
     async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
         await self.await_ready_to_move()
         self._vehicle.simple_goto(util.Coordinate(coordinates.lat, coordinates.lon, 0))
