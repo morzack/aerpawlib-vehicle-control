@@ -1,6 +1,5 @@
 """
-Set of tools and frameworks that can be used to quickly write scripts that run
-on the AERPAW platform.
+.. include:: ./documentation.md
 """
 
 __version__ = "0.0.1"
