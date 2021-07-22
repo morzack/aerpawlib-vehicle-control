@@ -32,11 +32,16 @@ class Vehicle:
     _abortable: bool=False
     _aborted: bool=False
 
+    _home_location: util.Coordinate
+
     def __init__(self, connection_string: str):
         self._vehicle = dronekit.connect(connection_string, wait_ready=True)
-        self._vehicle.commands.download()
-        self._vehicle.commands.wait_ready() # we need to do this to capture
-                                            # things such as the home location
+        
+        # TODO this is commented until the filter is made more permissive
+        # or we find an alternative way of getting the autopilot's home location
+        # self._vehicle.commands.download()
+        # self._vehicle.commands.wait_ready() # we need to do this to capture
+        #                                     # things such as the home location
         
         self._has_heartbeat = False
         
@@ -49,8 +54,10 @@ class Vehicle:
         self._vehicle.add_attribute_listener("last_heartbeat", _heartbeat_listener)
 
         def _abort_listener(_, __, value):
-            if value != "GUIDED":
-                self._abort()
+            # TODO abort logic is more complicated :P
+            # if value != "GUIDED":
+            #     self._abort()
+            return
         self._vehicle.add_attribute_listener("mode", _abort_listener)
 
         # wait for connection
@@ -97,8 +104,7 @@ class Vehicle:
 
     @property
     def home_coords(self) -> util.Coordinate:
-        loc = self._vehicle.home_location
-        return util.Coordinate(loc.lat, loc.lon)
+        return self._home_location
     
     @property
     def heading(self) -> float:
@@ -177,6 +183,7 @@ class Vehicle:
 
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")
         self._abortable = True
+        self._home_location = self.position
     
     async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
         """
