@@ -54,6 +54,8 @@ class PreplannedTrajectory(StateMachine):
     async def next_waypoint(self, drone: Drone):
         # figure out the next waypoint to go to
         self._current_waypoint += 1
+        if self._current_waypoint >= len(self._waypoints):
+            return "rtl"
         print(f"Waypoint {self._current_waypoint}")
         waypoint = self._waypoints[self._current_waypoint]
         if waypoint[0] == 20:       # RTL encountered, finish routine
