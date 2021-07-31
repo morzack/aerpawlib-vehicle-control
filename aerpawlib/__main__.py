@@ -24,6 +24,8 @@ if __name__ == "__main__":
     parser.add_argument("--script", help="experimenter script", required=True)
     parser.add_argument("--conn", help="connection string", required=True)
     parser.add_argument("--vehicle", help="vehicle type [generic, drone, rover]", required=True)
+    parser.add_argument("--skip-init", help="skip initialization", required=False,
+            const=False, default=True, action="store_const", dest="initialize")
     args, unknown_args = parser.parse_known_args() # we'll pass other args to the script
 
     # import script and use reflection to get StateMachine
@@ -58,7 +60,7 @@ if __name__ == "__main__":
 
     runner.initialize_args(unknown_args)
     
-    if vehicle_type in [Drone, Rover]:
+    if vehicle_type in [Drone, Rover] and args.initialize:
         print("Waiting for safety pilot to arm")
         vehicle._initialize() # _initialize will perform needed state changes/waiting
     
