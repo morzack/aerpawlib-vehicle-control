@@ -179,6 +179,8 @@ def read_from_plan(path: str) -> List[Waypoint]:
         raise Exception("Wrong file type -- use a .plan file.")
     for item in data["mission"]["items"]:
         command = item["command"]
+        if command not in [22, 16, 20]:
+            continue
         x, y, z = item["params"][4:7]
         waypoint_id = item["doJumpId"]
         waypoints.append((command, x, y, z, waypoint_id))
