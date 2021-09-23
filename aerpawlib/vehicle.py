@@ -179,6 +179,8 @@ class Vehicle:
         acceptable. MUST be called before anything else. Though this is done by
         the runner.
         """
+        while not self._vehicle.system_status in ["STANDBY", "ACTIVE"]: time.sleep(_POLLING_DELAY)
+        while not self._vehicle.is_armable: time.sleep(_POLLING_DELAY)
         while not self.armed: time.sleep(_POLLING_DELAY)
 
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")

@@ -61,7 +61,7 @@ if __name__ == "__main__":
     runner.initialize_args(unknown_args)
     
     if vehicle_type in [Drone, Rover] and args.initialize:
-        print("Waiting for safety pilot to arm")
+        print("Waiting for vehicle to be armable and for safety pilot to arm")
         vehicle._initialize() # _initialize will perform needed state changes/waiting
     
     asyncio.run(runner.run(vehicle))
