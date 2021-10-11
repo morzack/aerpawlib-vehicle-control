@@ -184,9 +184,6 @@ def read_from_plan(path: str) -> List[Waypoint]:
         x, y, z = item["params"][4:7]
         waypoint_id = item["doJumpId"]
         waypoints.append((command, x, y, z, waypoint_id))
-    x_home, y_home = data["mission"]["plannedHomePosition"][0:2]
-    z_home = waypoints[0][3]
-    waypoints.append((16, x_home, y_home, z_home, len(waypoints)+1))
     return waypoints
 
 def get_location_from_waypoint(waypoint: Waypoint) -> dronekit.LocationGlobalRelative:
