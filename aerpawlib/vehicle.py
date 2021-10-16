@@ -37,11 +37,9 @@ class Vehicle:
     def __init__(self, connection_string: str):
         self._vehicle = dronekit.connect(connection_string, wait_ready=True)
         
-        # TODO this is commented until the filter is made more permissive
-        # or we find an alternative way of getting the autopilot's home location
-        # self._vehicle.commands.download()
-        # self._vehicle.commands.wait_ready() # we need to do this to capture
-        #                                     # things such as the home location
+        self._vehicle.commands.download()
+        self._vehicle.commands.wait_ready() # we need to do this to capture
+                                            # things such as the home location
         
         self._has_heartbeat = False
         
