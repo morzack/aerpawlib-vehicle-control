@@ -185,12 +185,19 @@ class Vehicle:
         self._abortable = True
         self._home_location = self.position
     
-    async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
+    async def goto_coordinates(self,
+            coordinates: util.Coordinate,
+            tolerance: float=2,
+            target_heading: float=None):
         """
         Make the vehicle go to provided coordinates.
 
         `tolerance` is the min distance away from the coordinates, in meters,
         that is acceptable.
+
+        `target_heading`, when set, will make the drone point in the specified
+        direction (absolute). Otherwise it will face along the direction of
+        travel.
 
         This method is only available for vehicles built off the `Vehicle` type
         (ex: `Drone` or `Rover`)
@@ -286,7 +293,15 @@ class Drone(Vehicle):
         self._ready_to_move = lambda _: False
         while self.armed: await asyncio.sleep(_POLLING_DELAY)
 
-    async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
+    async def goto_coordinates(self,
+            coordinates: util.Coordinate,
+            tolerance: float=2,
+            target_heading: float=None):
+        if target_heading != None:
+            await self.set_heading(target_heading)
+        else:
+            await self.set_heading(self.position.bearing(coordinates))
+        
         await self.await_ready_to_move()
         self._vehicle.simple_goto(coordinates.location())
         
@@ -302,8 +317,13 @@ class Rover(Vehicle):
     Rover vehicle type. Implements all functionality that AERPAW's rovers
     expose to user scripts, which includes basic movement control (going to
     coords).
+
+    `target_heading` is ignored for rovers, as they can't strafe.
     """
-    async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
+    async def goto_coordinates(self,
+            coordinates: util.Coordinate,
+            tolerance: float=2,
+            target_heading: float=None):
         await self.await_ready_to_move()
         self._vehicle.simple_goto(util.Coordinate(coordinates.lat, coordinates.lon, 0))
         
@@ -313,6 +333,6 @@ class Rover(Vehicle):
 
         while not at_coords(self): await asyncio.sleep(_POLLING_DELAY)
 
-# TODO break this down further:
+# TODO break this down further?:
 # class LAM(Drone)
 # class SAM(Drone)
