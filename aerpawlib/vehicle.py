@@ -233,7 +233,7 @@ class Drone(Vehicle):
         # observed in SITL. could be wrong, and it's kind of magic undocumnted stuff.
         # doing more research.
         msg = self._vehicle.message_factory.command_long_encode(
-            1, 250,                                     # target system, component
+            0, 0,                                       # target system, component
             mavutil.mavlink.MAV_CMD_CONDITION_YAW,      # command
             0,                                          # confirmation
             heading,                                    # yaw angle in deg
@@ -278,6 +278,7 @@ class Drone(Vehicle):
         self._ready_to_move = taken_off
 
         while not taken_off(self): await asyncio.sleep(_POLLING_DELAY)
+        await asyncio.sleep(5)
 
     async def land(self):
         """
@@ -325,7 +326,7 @@ class Rover(Vehicle):
             tolerance: float=2,
             target_heading: float=None):
         await self.await_ready_to_move()
-        self._vehicle.simple_goto(util.Coordinate(coordinates.lat, coordinates.lon, 0))
+        self._vehicle.simple_goto(util.Coordinate(coordinates.lat, coordinates.lon, 0).location())
         
         at_coords = lambda self: \
             coordinates.ground_distance(self.position) <= tolerance
