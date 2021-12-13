@@ -26,6 +26,56 @@ class VectorNED:
         self.east = east
         self.down = down
 
+    def rotate_by_angle(self, angle: float):
+        """
+        Transform this VectorNED and rotate it by a certain angle, provided in
+        degrees.
+
+        ex: VectorNED(1, 0, 0).rotate_by_angle(90) -> VectorNed(0, -1, 0)
+        ex: VectorNED(1, 0, 0).rotate_by_angle(45) -> VectorNed(0.707, -0.707, 0)
+        """
+        rads = angle / 180 * math.pi
+        
+        east = self.east * math.cos(rads) - self.north * math.sin(rads)
+        north = self.east * math.sin(rads) + self.north * math.cos(rads)
+        
+        return VectorNED(north, east, self.down)
+
+    def cross_product(self, o):
+        """
+        find the cross product of this and the other vector (this x o)
+        """
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(
+                self.east * o.down + self.down * o.east,
+                self.down * o.north - self.north * o.down,
+                self.north * o.east - self.east * o.north
+                )
+
+    def hypot(self, ignore_down: bool=False):
+        """
+        find the distance of this VectorNED, optionally ignoring any changes in
+        height
+        """
+        if ignore_down:
+            return math.hypot(self.north, self.east)
+        else:
+            return math.hypot(self.north, self.east, self.down)
+
+    def __add__(self, o):
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(self.north + o.north,
+                self.east + o.east,
+                self.down + o.down)
+
+    def __sub__(self, o):
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(self.north - o.north,
+                self.east - o.east,
+                self.down - o.down)
 class Coordinate:
     """
     An absolute point in space making use of lat, lon, and an altitude (over

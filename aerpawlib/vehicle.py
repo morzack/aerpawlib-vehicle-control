@@ -196,13 +196,41 @@ class Vehicle:
         that is acceptable.
 
         `target_heading`, when set, will make the drone point in the specified
-        direction (absolute). Otherwise it will face along the direction of
-        travel.
+        direction (absolute). Otherwise the drone will remain pointing in the
+        current direction. This is only available on drones.
 
         This method is only available for vehicles built off the `Vehicle` type
         (ex: `Drone` or `Rover`)
         """
         raise Exception("Generic vehicles can't go to coordinates!")
+
+    async def set_velocity(self,
+            velocity_vector: util.VectorNED,
+            global_relative: bool=True,
+            duration: float=None):
+        """
+        Set a drone's velocity that it will use for `duration` seconds.
+
+        The velocity vector provided will be inerpreted as being global
+        relative *in direction* unless the `global_relative` parameter is set
+        to False.
+
+        The vehicle will maintain this velocity for `duration` seconds, if
+        `duration` is provided, otherwise it will automatically maintain the
+        specified velocity until another command is sent.
+        """
+        raise Exception("set_velocity not implemented")
+    
+    async def _stop(self):
+        """
+        Internal utility to stop any movement being run in the background. This
+        ignores await_ready_to_move(). Requires set_velocity to be implemented
+        for the given vehicle.
+
+        TODO needs testing. setting velocity to 0\bar may not be best way to
+        stop
+        """
+        self._ready_to_move = lambda _: True
 
 class Drone(Vehicle):
     """
@@ -215,7 +243,7 @@ class Drone(Vehicle):
         Set the heading of the vehicle (in absolute deg).
         
         To turn a relative # of degrees, you can do something like
-        `set_heading(drone.pos + x)`
+        `drone.set_heading(drone.heading + x)`
 
         NOTE that this function still needs to be tested kind of extensively.
         Ardupilot has a few internal states that control the heading, and when
@@ -300,10 +328,9 @@ class Drone(Vehicle):
             target_heading: float=None):
         if target_heading != None:
             await self.set_heading(target_heading)
-        else:
-            await self.set_heading(self.position.bearing(coordinates))
         
         await self.await_ready_to_move()
+        await self._stop()
         self._vehicle.simple_goto(coordinates.location())
         
         # TODO in the future we likely want to split alt into a different tolerance
@@ -312,6 +339,49 @@ class Drone(Vehicle):
         self._ready_to_move = at_coords
 
         while not at_coords(self): await asyncio.sleep(_POLLING_DELAY)
+
+    _velocity_loop_active: bool=False
+
+    async def set_velocity(self,
+            velocity_vector: util.VectorNED,
+            global_relative: bool=True,
+            duration: float=None):
+        await self.await_ready_to_move()
+        
+        self._velocity_loop_active = False # TODO race condition bleh
+        await asyncio.sleep(_POLLING_DELAY)
+        
+        if not global_relative:
+            velocity_vector = velocity_vector.rotate_by_angle(-self.heading)
+
+        msg = self._vehicle.message_factory.set_position_target_global_int_encode(
+                0, 0, 0,                # unused, target sys, component
+                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                0b0000111111000111,     # bitmask to only set speed
+                0, 0, 0,                # unused
+                velocity_vector.north,
+                velocity_vector.east,
+                velocity_vector.down,
+                0, 0, 0,                # (unsupported) accel
+                0, 0                    # yaw/rate
+                )
+        
+        self._ready_to_move = lambda _: True
+        target_end = time.time() + duration if duration is not None else None
+        
+        async def _velocity_helper():
+            while self._velocity_loop_active:
+                if target_end is not None and time.time() > target_end:
+                    self._velocity_loop_active = False
+                self._vehicle.send_mavlink(msg)
+                await asyncio.sleep(0.1)        # TODO tune for better perf
+        self._velocity_loop_active = True
+        asyncio.ensure_future(_velocity_helper())
+
+    async def _stop(self):
+        await super()._stop()
+        await self.set_velocity(util.VectorNED(0, 0, 0))
+        self._velocity_loop_active = False
 
 class Rover(Vehicle):
     """
