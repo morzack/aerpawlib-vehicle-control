@@ -61,10 +61,17 @@ if __name__ == "__main__":
     runner.initialize_args(unknown_args)
     
     if vehicle_type in [Drone, Rover] and args.initialize:
-        print("Waiting for vehicle to be armable and for safety pilot to arm")
+        print("[aerpawlib] Waiting for vehicle to be armable and for safety pilot to arm")
         vehicle._initialize() # _initialize will perform needed state changes/waiting
     
     asyncio.run(runner.run(vehicle))
+    
+    # rtl / land if not already done
+    if vehicle_type in [Drone, Rover] and vehicle.armed:
+        print("[aerpawlib] Vehicle still armed after experiment! RTLing and LANDing automatically.")
+        await vehicle.goto_coordinates(vehicle._home_location)
+        if vehicle_type in [Drone]:
+            await vehicle.land()
     
     # clean up
     vehicle.close()
