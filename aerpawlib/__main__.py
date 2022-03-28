@@ -69,9 +69,9 @@ if __name__ == "__main__":
     # rtl / land if not already done
     if vehicle_type in [Drone, Rover] and vehicle.armed:
         print("[aerpawlib] Vehicle still armed after experiment! RTLing and LANDing automatically.")
-        await vehicle.goto_coordinates(vehicle._home_location)
+        vehicle.goto_coordinates(vehicle._home_location)
         if vehicle_type in [Drone]:
-            await vehicle.land()
+            vehicle.land()
     
     # clean up
     vehicle.close()
