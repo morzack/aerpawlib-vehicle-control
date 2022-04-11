@@ -220,6 +220,17 @@ class Vehicle:
         specified velocity until another command is sent.
         """
         raise Exception("set_velocity not implemented")
+
+    async def set_groundspeed(self, velocity: float):
+        """
+        Set a vehicle's cruise velocity as used by the autopilot when performing
+        guided movement operations (ex: goto_coordinates). In m/s.
+
+        NOTE:
+            This is not always respected by the autopilot and will not succeed
+            on rover type vehicles in simulation.
+        """
+        self._vehicle.groundspeed = velocity
     
     async def _stop(self):
         """
