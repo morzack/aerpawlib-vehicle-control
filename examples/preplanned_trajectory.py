@@ -1,7 +1,9 @@
 """
 preplanned_trajectory will take in a .plan file, parse it, and make the vehicle
 used (must be a drone!) follow the path provided. This is a good example of how
-to use the StateMachine framework, as well as the initialize_args method
+to use the StateMachine framework, as well as the initialize_args method. This
+script also contains an example of how to use the ExternalProcess tooling, in
+this case by calling ping periodically (at every waypoint)
 
 Usage:
     python -m aerpawlib --conn ... --vehicle ... --script preplanned_trajectory \
@@ -25,8 +27,10 @@ State vis:
 """
 
 from argparse import ArgumentParser
+import re
 from typing import List
 
+from aerpawlib.external import ExternalProcess
 from aerpawlib.runner import StateMachine, state, in_background, timed_state
 from aerpawlib.util import Coordinate, Waypoint, read_from_plan
 from aerpawlib.vehicle import Drone
@@ -39,8 +43,25 @@ class PreplannedTrajectory(StateMachine):
         # use an extra argument parser to read in custom script arguments
         parser = ArgumentParser()
         parser.add_argument("--file", help="Mission plan file path.", required=True)
+        parser.add_argument("--noping", help="skip calling ping coroutine", action="store_true")
         args = parser.parse_args(args=extra_args)
         self._waypoints = read_from_plan(args.file)
+        self._pinging = not args.noping
+
+    _ping_regex = re.compile(r".+icmp_seq=(?P<seq>\d+).+time=(?P<time>\d\.\d+) ms")
+
+    async def _ping_latency(self, address: str, count: int):
+        ping = ExternalProcess("ping", params=[address, "-c", str(count)])
+        await ping.start()
+        latencies = []
+        # repeatedly wait for ping to produce output w/ icmp_seq field
+        while buff := await ping.wait_until_output(r"icmp_seq="):
+            ping_re_match = self._ping_regex.match(buff[-1]) # last line contains useful data
+            latencies.append(float(ping_re_match.group("time")))
+            if ping_re_match.group("seq") == str(count):
+                break
+        avg_latency = sum(latencies) / len(latencies)
+        return avg_latency
 
     @state(name="take_off", first=True)
     async def take_off(self, drone: Drone):
@@ -60,6 +81,11 @@ class PreplannedTrajectory(StateMachine):
         waypoint = self._waypoints[self._current_waypoint]
         if waypoint[0] == 20:       # RTL encountered, finish routine
             return "rtl"
+
+        # measure average ping latency
+        if self._pinging:
+            avg_ping_latency = await self._ping_latency("127.0.0.1", 5) # ping 127.0.0.1 5 times
+            print(f"Average ping latency: {avg_ping_latency}ms")
         
         # go to next waypoint
         coords = Coordinate(*waypoint[1:4])
