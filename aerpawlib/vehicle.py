@@ -42,6 +42,8 @@ class Vehicle:
                                             # things such as the home location
         
         self._has_heartbeat = False
+
+        self._should_postarm_init = True
         
         # register required listeners after connecting
         def _heartbeat_listener(_, __, value):
@@ -170,16 +172,22 @@ class Vehicle:
                                                 # certain that a scipt always arms once
         self._vehicle.armed = value
         while not self._vehicle.armed: await asyncio.sleep(_POLLING_DELAY)
+    
+    def _initialize_prearm(self, should_postarm_init):
+        while not self._vehicle.system_status in ["STANDBY", "ACTIVE"]: time.sleep(_POLLING_DELAY)
+        self._should_postarm_init = should_postarm_init
 
-    def _initialize(self):
+    async def _initialize_postarm(self):
         """
         Generic pre-mission manipulation of the vehicle into a state that is
         acceptable. MUST be called before anything else. Though this is done by
         the runner.
         """
-        while not self._vehicle.system_status in ["STANDBY", "ACTIVE"]: time.sleep(_POLLING_DELAY)
-        while not self._vehicle.is_armable: time.sleep(_POLLING_DELAY)
-        while not self.armed: time.sleep(_POLLING_DELAY)
+        if not self._should_postarm_init:
+            return
+
+        while not self._vehicle.is_armable: await asyncio.sleep(_POLLING_DELAY)
+        while not self.armed: await asyncio.sleep(_POLLING_DELAY)
 
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")
         self._abortable = True

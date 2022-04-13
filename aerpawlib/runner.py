@@ -171,6 +171,23 @@ def background(func):
     func._is_background = True
     return func
 
+_InitializationTask = Callable[[Runner, Vehicle], None]
+
+def at_init(func):
+    """
+    Designate a function to be run at vehicle initialization and before vehicle
+    arming (or at least the prompt to arm). The vehicle will not be armable
+    until after all `at_init` functions finish executing.
+    
+    The function designated should have a signature that accepts a Vehicle.
+
+    The function decorated by this is expected to be `async`. If there are
+    multiple functions marked with `at_init`, they will all be run at the same
+    time.
+    """
+    func._run_at_init = True
+    return func
+
 _STATE_DELAY = 0.01 # s between each time the state update is called
 
 class StateMachine(Runner):
@@ -189,6 +206,7 @@ class StateMachine(Runner):
 
     _states: Dict[str, _State]
     _background_tasks: List[_BackgroundTask]
+    _initialization_tasks: List[_InitializationTask]
     _entrypoint: str
     _current_state: str
     _running: bool
@@ -196,6 +214,7 @@ class StateMachine(Runner):
     def _build(self):
         self._states = {}
         self._background_tasks = []
+        self._initialization_tasks = []
         for _, method in inspect.getmembers(self):
             if not inspect.ismethod(method):
                 continue
@@ -207,6 +226,8 @@ class StateMachine(Runner):
                     raise Exception("There may only be one initial state")
             if hasattr(method, "_is_background"):
                 self._background_tasks.append(method)
+            if hasattr(method, "_run_at_init"):
+                self._initialization_tasks.append(method)
         if not self._entrypoint:
             raise Exception("There is no initial state")
     
@@ -222,7 +243,13 @@ class StateMachine(Runner):
         assert self._entrypoint
         self._current_state = self._entrypoint
         self._running = True
+        
+        await asyncio.wait({f(vehicle) for f in self._initialization_tasks})
+        print("[aerpawlib] Initialization tasks complete. Waiting for safety pilot to arm")
+        await vehicle._initialize_postarm()
+        
         await self._start_background_tasks(vehicle)
+        
         while self._running:
             if self._current_state not in self._states:
                 print(self._current_state)

@@ -31,7 +31,7 @@ import re
 from typing import List
 
 from aerpawlib.external import ExternalProcess
-from aerpawlib.runner import StateMachine, state, in_background, timed_state
+from aerpawlib.runner import StateMachine, state, in_background, timed_state, at_init
 from aerpawlib.util import Coordinate, Waypoint, read_from_plan
 from aerpawlib.vehicle import Drone
 
@@ -62,6 +62,13 @@ class PreplannedTrajectory(StateMachine):
                 break
         avg_latency = sum(latencies) / len(latencies)
         return avg_latency
+
+    @at_init
+    async def ping_before_running(self, drone: Drone):
+        # do a few pings before waiting for the drone to arm
+        if self._pinging:
+            avg_ping_latency = await self._ping_latency("127.0.0.1", 5) # ping 127.0.0.1 5 times
+            print(f"Average ping latency: {avg_ping_latency}ms")
 
     @state(name="take_off", first=True)
     async def take_off(self, drone: Drone):
