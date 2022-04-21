@@ -26,6 +26,7 @@ State vis:
     └─────┘
 """
 
+import asyncio
 from argparse import ArgumentParser
 import re
 from typing import List
@@ -51,6 +52,11 @@ class PreplannedTrajectory(StateMachine):
     _ping_regex = re.compile(r".+icmp_seq=(?P<seq>\d+).+time=(?P<time>\d\.\d+) ms")
 
     async def _ping_latency(self, address: str, count: int):
+        """
+        This function will calculate the average latency to `address` by using
+        ping and looking at the time in the output. This makes use of native
+        aerpawlib tooling (ExternalProcess)
+        """
         ping = ExternalProcess("ping", params=[address, "-c", str(count)])
         await ping.start()
         latencies = []
@@ -58,7 +64,7 @@ class PreplannedTrajectory(StateMachine):
         while buff := await ping.wait_until_output(r"icmp_seq="):
             ping_re_match = self._ping_regex.match(buff[-1]) # last line contains useful data
             latencies.append(float(ping_re_match.group("time")))
-            if ping_re_match.group("seq") == str(count):
+            if ping_re_match.group("seq") == str(count): # if icmp_seq shows we've sent everything
                 break
         avg_latency = sum(latencies) / len(latencies)
         return avg_latency
@@ -89,11 +95,6 @@ class PreplannedTrajectory(StateMachine):
         if waypoint[0] == 20:       # RTL encountered, finish routine
             return "rtl"
 
-        # measure average ping latency
-        if self._pinging:
-            avg_ping_latency = await self._ping_latency("127.0.0.1", 5) # ping 127.0.0.1 5 times
-            print(f"Average ping latency: {avg_ping_latency}ms")
-        
         # go to next waypoint
         coords = Coordinate(*waypoint[1:4])
         in_background(drone.goto_coordinates(coords))
@@ -102,13 +103,25 @@ class PreplannedTrajectory(StateMachine):
     @state(name="in_transit")
     async def in_transit(self, drone: Drone):
         # wait for the drone to arrive at the next waypoint and then transition
+
+        # also as an example, measure ping latency while on the move
+        if self._pinging:
+            avg_ping_latency = await self._ping_latency("127.0.0.1", 5) # ping 127.0.0.1 5 times
+            print(f"Average ping latency: {avg_ping_latency}ms")
+
         await drone.await_ready_to_move()
         return "at_waypoint"
-    
+
     @timed_state(name="at_waypoint", duration=3)
     async def at_waypoint(self, _):
         # perform any extra functionality to be done at a waypoint, but stay
         # there for at least 3 seconds
+
+        # example: measure average ping latency
+        if self._pinging:
+            avg_ping_latency = await self._ping_latency("127.0.0.1", 5) # ping 127.0.0.1 5 times
+            print(f"Average ping latency: {avg_ping_latency}ms")
+
         return "next_waypoint"
 
     @state(name="rtl")
