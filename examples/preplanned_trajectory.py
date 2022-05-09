@@ -148,6 +148,8 @@ class PreplannedTrajectory(StateMachine):
 
         # go to next waypoint
         coords = Coordinate(*waypoint["pos"])
+        target_speed = waypoint["speed"]
+        await drone.set_groundspeed(target_speed)
         in_background(drone.goto_coordinates(coords), target_heading=DEFAULT_HEADING)
         return "in_transit"
 

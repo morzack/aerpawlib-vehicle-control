@@ -35,10 +35,10 @@ class VectorNED:
         ex: VectorNED(1, 0, 0).rotate_by_angle(45) -> VectorNed(0.707, -0.707, 0)
         """
         rads = angle / 180 * math.pi
-        
+
         east = self.east * math.cos(rads) - self.north * math.sin(rads)
         north = self.east * math.sin(rads) + self.north * math.cos(rads)
-        
+
         return VectorNED(north, east, self.down)
 
     def cross_product(self, o):
@@ -125,7 +125,7 @@ class Coordinate:
         """
         if not isinstance(other, Coordinate):
             raise TypeError()
-        
+
         other = Coordinate(other.lat, other.lon, self.alt)
         return self.distance(other)
 
@@ -141,7 +141,7 @@ class Coordinate:
         """
         if not isinstance(other, Coordinate):
             raise TypeError()
-        
+
         # calculation uses haversine distance
         # not the most efficient approx, but as accurate as we need
         d2r = math.pi / 180
@@ -207,7 +207,14 @@ class Coordinate:
             raise TypeError()
 
 # TODO make Waypoint use Coordinates
-Waypoint = Tuple[int, float, float, float, int] # command, x, y, z, waypoint_id
+Waypoint = Tuple[int, float, float, float, int, float] # command, x, y, z, waypoint_id, speed
+
+_DEFAULT_WAYPOINT_SPEED = 5 # m/s
+
+_PLAN_CMD_TAKEOFF       = 22
+_PLAN_CMD_WAYPOINT      = 16
+_PLAN_CMD_RTL           = 20
+_PLAN_CMD_SPEED         = 178
 
 def read_from_plan(path: str) -> List[Waypoint]:
     """
@@ -230,13 +237,15 @@ def read_from_plan(path: str) -> List[Waypoint]:
         data = json.load(f)
     if data["fileType"] != "Plan":
         raise Exception("Wrong file type -- use a .plan file.")
+    current_speed = _DEFAULT_WAYPOINT_SPEED
     for item in data["mission"]["items"]:
         command = item["command"]
-        if command not in [22, 16, 20]:
-            continue
-        x, y, z = item["params"][4:7]
-        waypoint_id = item["doJumpId"]
-        waypoints.append((command, x, y, z, waypoint_id))
+        if command in [_PLAN_CMD_TAKEOFF, _PLAN_CMD_WAYPOINT, _PLAN_CMD_RTL]:
+            x, y, z = item["params"][4:7]
+            waypoint_id = item["doJumpId"]
+            waypoints.append((command, x, y, z, waypoint_id, current_speed))
+        elif command in [_PLAN_CMD_SPEED]:
+            current_speed = item["params"][1]
     return waypoints
 
 def get_location_from_waypoint(waypoint: Waypoint) -> dronekit.LocationGlobalRelative:
@@ -260,17 +269,20 @@ def read_from_plan_complete(path: str):
         data = json.load(f)
     if data["fileType"] != "Plan":
         raise Exception("Wrong file type -- use a .plan file.")
+    current_speed = _DEFAULT_WAYPOINT_SPEED
     for item in data["mission"]["items"]:
         command = item["command"]
-        if command not in [22, 16, 20]:
-            continue
-        x, y, z = item["params"][4:7]
-        waypoint_id = item["doJumpId"]
-        delay = item["params"][0]
-        waypoints.append({
-            "id": waypoint_id,
-            "command": command,
-            "pos": [x, y, z],
-            "wait_for": delay,
-            })
+        if command in [_PLAN_CMD_SPEED]:
+            current_speed = item["params"][1]
+        elif command in [_PLAN_CMD_TAKEOFF, _PLAN_CMD_WAYPOINT, _PLAN_CMD_RTL]:
+            x, y, z = item["params"][4:7]
+            waypoint_id = item["doJumpId"]
+            delay = item["params"][0]
+            waypoints.append({
+                "id": waypoint_id,
+                "command": command,
+                "pos": [x, y, z],
+                "wait_for": delay,
+                "speed": current_speed,
+                })
     return waypoints
