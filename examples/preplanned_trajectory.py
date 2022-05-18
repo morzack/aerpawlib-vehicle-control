@@ -32,22 +32,22 @@ import re
 from typing import List
 
 from aerpawlib.external import ExternalProcess
-from aerpawlib.runner import StateMachine, state, in_background, timed_state, at_init
-from aerpawlib.util import Coordinate, Waypoint, read_from_plan
+from aerpawlib.runner import StateMachine, state, in_background, timed_state, at_init, sleep
+from aerpawlib.util import Coordinate, Waypoint, read_from_plan_complete
 from aerpawlib.vehicle import Drone
 
 class PreplannedTrajectory(StateMachine):
-    _waypoints: List[Waypoint]
+    _waypoints = []
     _current_waypoint: int=0
 
     def initialize_args(self, extra_args: List[str]):
         # use an extra argument parser to read in custom script arguments
         parser = ArgumentParser()
         parser.add_argument("--file", help="Mission plan file path.", required=True)
-        parser.add_argument("--noping", help="skip calling ping coroutine", action="store_true")
+        parser.add_argument("--ping", help="call ping coroutine", action="store_false")
         args = parser.parse_args(args=extra_args)
-        self._waypoints = read_from_plan(args.file)
-        self._pinging = not args.noping
+        self._waypoints = read_from_plan_complete(args.file)
+        self._pinging = not args.ping
 
     _ping_regex = re.compile(r".+icmp_seq=(?P<seq>\d+).+time=(?P<time>\d\.\d+) ms")
 
@@ -79,7 +79,7 @@ class PreplannedTrajectory(StateMachine):
     @state(name="take_off", first=True)
     async def take_off(self, drone: Drone):
         # take off to the alt of the first waypoint
-        takeoff_alt = self._waypoints[self._current_waypoint][3]
+        takeoff_alt = self._waypoints[self._current_waypoint]["pos"][2]
         print(f"Taking off to {takeoff_alt}m")
         await drone.takeoff(takeoff_alt)
         return "next_waypoint"
@@ -92,11 +92,11 @@ class PreplannedTrajectory(StateMachine):
             return "rtl"
         print(f"Waypoint {self._current_waypoint}")
         waypoint = self._waypoints[self._current_waypoint]
-        if waypoint[0] == 20:       # RTL encountered, finish routine
+        if waypoint["command"] == 20:       # RTL encountered, finish routine
             return "rtl"
 
         # go to next waypoint
-        coords = Coordinate(*waypoint[1:4])
+        coords = Coordinate(*waypoint["pos"])
         in_background(drone.goto_coordinates(coords))
         return "in_transit"
 
@@ -116,6 +116,12 @@ class PreplannedTrajectory(StateMachine):
     async def at_waypoint(self, _):
         # perform any extra functionality to be done at a waypoint, but stay
         # there for at least 3 seconds
+
+        # ensure that we wait for some amount of time if specified in the .plan
+        # default for no waiting in QGC is 0s, so this await wouldn't run
+        wait_for = self._waypoints[self._current_waypoint]["wait_for"]
+        if wait_for > 0:
+            await sleep(wait_for)
 
         # example: measure average ping latency
         if self._pinging:

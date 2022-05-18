@@ -221,6 +221,9 @@ def read_from_plan(path: str) -> List[Waypoint]:
     QGroundControl. `.plan` internally stores the data as a JSON object, so it
     would be trivial to roll your own generator if needed, but with no
     assertion that this helper would work.
+
+    Use read_from_plan_complete to get a much more generic object containing
+    more functionality for each waypoint (ex: speed or time to hold)
     """
     waypoints = []
     with open(path) as f:
@@ -243,3 +246,31 @@ def get_location_from_waypoint(waypoint: Waypoint) -> dronekit.LocationGlobalRel
     TODO convert/deprecate
     """
     return dronekit.LocationGlobalRelative(*waypoint[1:4])
+
+def read_from_plan_complete(path: str):
+    """
+    Helper to read from a .plan file and gather all fields from each waypoint
+
+    This can then be used for more advanced .plan file based missions
+    
+    Returned data schema subject to change
+    """
+    waypoints = []
+    with open(path) as f:
+        data = json.load(f)
+    if data["fileType"] != "Plan":
+        raise Exception("Wrong file type -- use a .plan file.")
+    for item in data["mission"]["items"]:
+        command = item["command"]
+        if command not in [22, 16, 20]:
+            continue
+        x, y, z = item["params"][4:7]
+        waypoint_id = item["doJumpId"]
+        delay = item["params"][0]
+        waypoints.append({
+            "id": waypoint_id,
+            "command": command,
+            "pos": [x, y, z],
+            "wait_for": delay,
+            })
+    return waypoints
