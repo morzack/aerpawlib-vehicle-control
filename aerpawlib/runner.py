@@ -167,6 +167,10 @@ def background(func):
     thread-safety into consideration.
 
     The function decorated by this is expected to be `async`
+
+    When using @background, make sure to incorporate some kind of delay.
+    Without any delay, an @background thread can eat all the python
+    instance's CPU
     """
     func._is_background = True
     return func
@@ -244,7 +248,10 @@ class StateMachine(Runner):
         self._current_state = self._entrypoint
         self._running = True
         
-        await asyncio.wait({f(vehicle) for f in self._initialization_tasks})
+
+        if len(self._initialization_tasks) != 0:
+            await asyncio.wait({f(vehicle) for f in self._initialization_tasks})
+        
         print("[aerpawlib] Initialization tasks complete. Waiting for safety pilot to arm")
         await vehicle._initialize_postarm()
         
