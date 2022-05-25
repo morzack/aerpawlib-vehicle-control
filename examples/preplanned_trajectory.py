@@ -81,7 +81,9 @@ class PreplannedTrajectory(StateMachine):
         await ping.start()
         latencies = []
         # repeatedly wait for ping to produce output w/ icmp_seq field
-        while buff := await ping.wait_until_output(r"icmp_seq="):
+        buff = 1
+        while buff:
+            buff = await ping.wait_until_output(r"icmp_seq=")
             ping_re_match = self._ping_regex.match(buff[-1]) # last line contains useful data
             latencies.append(float(ping_re_match.group("time")))
             if ping_re_match.group("seq") == str(count): # if icmp_seq shows we've sent everything
