@@ -13,6 +13,24 @@ from . import util
 # time to wait when polling for dronekit vehicle state changes
 _POLLING_DELAY = 0.01 # s
 
+class DummyVehicle:
+    """
+    vehicle for things that don't need vehicles :)
+
+    hacky lol
+    """
+    def __init__(self, connection_string: str):
+        pass
+
+    def close(self):
+        pass
+
+    def _initialize_prearm(self, should_postarm_init):
+        pass
+
+    async def _initialize_postarm(self):
+        pass
+
 class Vehicle:
     """
     Overarching "generic vehicle" type. Implements all functionality, excluding

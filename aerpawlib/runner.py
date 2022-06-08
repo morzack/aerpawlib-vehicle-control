@@ -9,7 +9,11 @@ from enum import Enum, auto
 import inspect
 from typing import Callable, Dict, List
 
+import zmq
+import zmq.asyncio
+
 from .vehicle import Vehicle
+from .zmqutil import ZMQ_PROXY_OUT_PORT, ZMQ_PROXY_IN_PORT 
 
 class Runner:
     """
@@ -158,6 +162,16 @@ def timed_state(name: str, duration: float, loop=False, first: bool=False):
         return func
     return decorator
 
+# TODO do something w/ this? why not just export all states perhaps
+def expose_zmq(name: str):
+    if name == "":
+        raise Exception("state must be exported with some binding")
+    def decorator(func):
+        func_._is_exposed_zmq = True
+        func._zmq_name = name
+        return func
+    return decorator
+
 _BackgroundTask = Callable[[Runner, Vehicle], None]
 
 def background(func):
@@ -213,6 +227,7 @@ class StateMachine(Runner):
     _initialization_tasks: List[_InitializationTask]
     _entrypoint: str
     _current_state: str
+    _override_next_state_transition: bool
     _running: bool
 
     def _build(self):
@@ -242,10 +257,13 @@ class StateMachine(Runner):
                     await t.__func__(self, vehicle)
             asyncio.ensure_future(_task_runner())
 
-    async def run(self, vehicle: Vehicle):
-        self._build()
+    async def run(self, vehicle: Vehicle, build_before_running=True):
+        if build_before_running:
+            self._build()
         assert self._entrypoint
         self._current_state = self._entrypoint
+        self._override_next_state_transition = False
+        self._next_state_overr = ""
         self._running = True
         
 
@@ -261,7 +279,14 @@ class StateMachine(Runner):
             if self._current_state not in self._states:
                 print(self._current_state)
                 raise Exception("Illegal state")
-            self._current_state = await self._states[self._current_state].run(self, vehicle)
+            
+            next_state = await self._states[self._current_state].run(self, vehicle)
+            if self._override_next_state_transition:
+                self._override_next_state_transition = False
+                self._current_state = self._next_state_overr
+            else:
+                self._current_state = next_state
+            
             if self._current_state is None:
                 self.stop()
             await asyncio.sleep(_STATE_DELAY)
@@ -274,6 +299,82 @@ class StateMachine(Runner):
         at the end of a state's execution.
         """
         self._running = False
+
+class ZmqStateMachine(StateMachine):
+    _exported_states: Dict[str, _State]
+
+    def _build(self):
+        super()._build()
+        self._exported_states = {}
+        for _, method in inspect.getmembers(self):
+            if not inspect.ismethod(method):
+                continue
+            if hasattr(method, "_is_exposed_zmq"):
+                self._exported_states[method._zmq_name] = _State(method, method._zmq_name)
+
+    _zmq_identifier: str
+    _zmq_proxy_server: str
+
+    def initialize_zmq_bindings(self, vehicle_identifier: str, proxy_server_addr: str):
+        self._zmq_identifier = vehicle_identifier
+        self._zmq_proxy_server = proxy_server_addr
+        self._zmq_context = zmq.asyncio.Context()
+
+    @background
+    async def _zmg_bg_sub(self, _: Vehicle):
+        socket = zmq.asyncio.Socket(context=self._zmq_context, io_loop=asyncio.get_event_loop(), socket_type=zmq.SUB)
+        socket.connect(f"tcp://{self._zmq_proxy_server}:{ZMQ_PROXY_OUT_PORT}")
+
+        socket.setsockopt_string(zmq.SUBSCRIBE, "")
+        self._zmq_messages_handling = asyncio.Queue()
+
+        while self._running:
+            message = await socket.recv_pyobj()
+            # await self._zmq_messages_handling.put(message)
+            if message["identifier"] != self._zmq_identifier:
+                continue
+            print(f"recv {message}")
+            next_state = message["next_state"]
+            self._next_state_overr = next_state
+            self._override_next_state_transition = True
+        
+    @background
+    async def _zmq_bg_pub(self, _: Vehicle):
+        # pub side of things is just sending from a queue
+        # TODO handlers for responses
+        self._zmq_messages_sending = asyncio.Queue()
+        socket = zmq.asyncio.Socket(context=self._zmq_context, io_loop=asyncio.get_event_loop(), socket_type=zmq.PUB)
+        socket.connect(f"tcp://{self._zmq_proxy_server}:{ZMQ_PROXY_IN_PORT}")
+        while self._running:
+            msg_sending = await self._zmq_messages_sending.get()
+            await socket.send_pyobj(msg_sending)
+
+    async def run(self, vehicle: Vehicle, zmq_proxy=False):
+        # must build in advance to get zmq stuff up
+        # avoid late rebuild by parent
+        self._build()
+
+        # if we're the base station, enable zmq_proxying
+        # TODO
+        # if zmq_proxy:
+        #     self._background_tasks.append(self._zmq_bg_proxy)
+        # self._background_tasks.extend([self._zmq_bg_pub, self._zmq_bg_sub])
+
+        if None in [self._zmq_identifier, self._zmq_proxy_server]:
+            raise Exception("initialize_zmq_bindings must be used w/ a zmq runner")
+        
+        await super().run(vehicle, build_before_running=False)
+
+    async def transition_runner(self, identifier: str, state: str, data={}):
+        # transition a runner via zmq that is not this one
+        # exposed to scripts via runner
+        transition_obj = {
+            "next_state": state,
+            "identifier": identifier,
+            "from": self._zmq_identifier,
+            "data": data,
+            }
+        await self._zmq_messages_sending.put(transition_obj)
 
 # helper functions for working with asyncio code
 
