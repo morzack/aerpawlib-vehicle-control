@@ -13,7 +13,7 @@ import zmq
 import zmq.asyncio
 
 from .vehicle import Vehicle
-from .zmqutil import ZMQ_PROXY_OUT_PORT, ZMQ_PROXY_IN_PORT 
+from .zmqutil import *
 
 class Runner:
     """
@@ -167,7 +167,17 @@ def expose_zmq(name: str):
     if name == "":
         raise Exception("state must be exported with some binding")
     def decorator(func):
-        func_._is_exposed_zmq = True
+        func._is_exposed_zmq = True
+        func._zmq_name = name
+        return func
+    return decorator
+
+def expose_field_zmq(name: str):
+    # expose a function as a thing that can be called to get a field w/ zmq
+    if name == "":
+        raise Exception("field must be exposed with some name")
+    def decorator(func):
+        func._is_exposed_field_zmq = True
         func._zmq_name = name
         return func
     return decorator
@@ -275,9 +285,12 @@ class StateMachine(Runner):
         
         await self._start_background_tasks(vehicle)
         
+        await asyncio.sleep(1) # wait for background tasks to start :p
+        
         while self._running:
             if self._current_state not in self._states:
                 print(self._current_state)
+                print(self._states)
                 raise Exception("Illegal state")
             
             next_state = await self._states[self._current_state].run(self, vehicle)
@@ -306,11 +319,14 @@ class ZmqStateMachine(StateMachine):
     def _build(self):
         super()._build()
         self._exported_states = {}
+        self._exported_fields = {}
         for _, method in inspect.getmembers(self):
             if not inspect.ismethod(method):
                 continue
             if hasattr(method, "_is_exposed_zmq"):
                 self._exported_states[method._zmq_name] = _State(method, method._zmq_name)
+            elif hasattr(method, "_is_exposed_field_zmq"):
+                self._exported_fields[method._zmq_name] = method
 
     _zmq_identifier: str
     _zmq_proxy_server: str
@@ -321,27 +337,43 @@ class ZmqStateMachine(StateMachine):
         self._zmq_context = zmq.asyncio.Context()
 
     @background
-    async def _zmg_bg_sub(self, _: Vehicle):
+    async def _zmg_bg_sub(self, vehicle: Vehicle):
         socket = zmq.asyncio.Socket(context=self._zmq_context, io_loop=asyncio.get_event_loop(), socket_type=zmq.SUB)
         socket.connect(f"tcp://{self._zmq_proxy_server}:{ZMQ_PROXY_OUT_PORT}")
 
         socket.setsockopt_string(zmq.SUBSCRIBE, "")
         self._zmq_messages_handling = asyncio.Queue()
+        self._zmq_received_fields = {} # indexed by [identifier][field]
 
+        print("starting sub")
         while self._running:
             message = await socket.recv_pyobj()
             # await self._zmq_messages_handling.put(message)
             if message["identifier"] != self._zmq_identifier:
                 continue
             print(f"recv {message}")
+            asyncio.ensure_future(self._zmq_handle_request(vehicle, message))
+
+    async def _zmq_handle_request(self, vehicle: Vehicle, message):
+        if message["msg_type"] == ZMQ_TYPE_TRANSITION:
             next_state = message["next_state"]
             self._next_state_overr = next_state
             self._override_next_state_transition = True
+        elif message["msg_type"] == ZMQ_TYPE_FIELD_REQUEST:
+            field = message["field"]
+            return_val = None
+            if field in self._exported_fields:
+                return_val = await self._exported_fields[field](vehicle)
+            await self._reply_queried_field(message["from"], field, return_val)
+        elif message["msg_type"] == ZMQ_TYPE_FIELD_CALLBACK:
+            field = message["field"]
+            value = message["value"]
+            msg_from = message["from"]
+            self._zmq_received_fields[msg_from][field] = value
         
     @background
     async def _zmq_bg_pub(self, _: Vehicle):
         # pub side of things is just sending from a queue
-        # TODO handlers for responses
         self._zmq_messages_sending = asyncio.Queue()
         socket = zmq.asyncio.Socket(context=self._zmq_context, io_loop=asyncio.get_event_loop(), socket_type=zmq.PUB)
         socket.connect(f"tcp://{self._zmq_proxy_server}:{ZMQ_PROXY_IN_PORT}")
@@ -365,16 +397,45 @@ class ZmqStateMachine(StateMachine):
         
         await super().run(vehicle, build_before_running=False)
 
-    async def transition_runner(self, identifier: str, state: str, data={}):
+    async def transition_runner(self, identifier: str, state: str):
         # transition a runner via zmq that is not this one
         # exposed to scripts via runner
         transition_obj = {
-            "next_state": state,
-            "identifier": identifier,
-            "from": self._zmq_identifier,
-            "data": data,
-            }
+                "msg_type": ZMQ_TYPE_TRANSITION,
+                "from": self._zmq_identifier,
+                "identifier": identifier,
+                "next_state": state,
+                }
         await self._zmq_messages_sending.put(transition_obj)
+
+    async def query_field(self, identifier: str, field: str):
+        # make a runner publish some registered field to the zmq system
+        # send a request and register a callback var
+        # when the callback is received, continue this functioen
+        # TODO None vs nil??
+        if identifier not in self._zmq_received_fields:
+            self._zmq_received_fields[identifier] = {}
+        self._zmq_received_fields[identifier][field] = None
+        query_obj = {
+                "msg_type": ZMQ_TYPE_FIELD_REQUEST,
+                "from": self._zmq_identifier,
+                "identifier": identifier,
+                "field": field,
+                }
+        await self._zmq_messages_sending.put(query_obj)
+        while self._zmq_received_fields[identifier][field] == None:
+            await asyncio.sleep(0.01)
+        return self._zmq_received_fields[identifier][field]
+
+    async def _reply_queried_field(self, identifier: str, field: str, value):
+        reply_obj = {
+                "msg_type": ZMQ_TYPE_FIELD_CALLBACK,
+                "from": self._zmq_identifier,
+                "identifier": identifier,
+                "field": field,
+                "value": value,
+                }
+        await self._zmq_messages_sending.put(reply_obj)
 
 # helper functions for working with asyncio code
 
