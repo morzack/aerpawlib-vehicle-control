@@ -38,13 +38,6 @@ class OrbiterRunner(ZmqStateMachine):
         await self.transition_runner(ZMQ_GROUND, "callback_orbiter_at_waypoint")
         return "wait_loop"
 
-    _orbit_coord_center: Coordinate
-    _orbit_end_position: Coordinate
-
-    _previous_thetas = []
-    _prev_avg_theta = None
-    _initial_theta = None
-    
     @state(name="orbit_tracer")
     async def state_orbit_tracer_start(self, drone: Drone):
         self._orbit_coord_center = await self.query_field(ZMQ_TRACER, "position")
@@ -57,37 +50,24 @@ class OrbiterRunner(ZmqStateMachine):
     @state(name="orbit")
     async def state_orbit(self, drone: Drone):
         current_pos = drone.position
-        radius_vec = current_pos - self._orbit_coord_center # points out to drone
-
-        # calculate perpendicular/tangent vector by taking cross product w/ down
+        radius_vec = current_pos - self._orbit_coord_center # points out to drone, use tangent to orbit
         perp_vec = radius_vec.cross_product(VectorNED(0, 0, 1))
-
-        # normalize and ignore the height
-        hypot = perp_vec.hypot(True)
-        target_velocity = VectorNED(
-                perp_vec.north / hypot * ORBIT_VEL,
-                perp_vec.east / hypot * ORBIT_VEL)
-
-        await drone.set_velocity(target_velocity)
-        await asyncio.sleep(0.05)
-
-        theta = math.atan2(radius_vec.north, radius_vec.east)
-        if self._initial_theta == None:
-            self._initial_theta = theta
-        theta -= self._initial_theta
-        self._previous_thetas.append(theta)
-        if len(self._previous_thetas) > 10:
-            self._previous_thetas.pop(0)
-        avg_theta = sum(self._previous_thetas) / len(self._previous_thetas)
-        if self._prev_avg_theta == None:
-            self._prev_avg_theta = avg_theta
         
-        # this condition fires when going from 3.14 rad -> -3.14 rad
-        if self._prev_avg_theta > 0 and avg_theta < 0:
-            await self.transition_runner(ZMQ_GROUND, "callback_orbiter_orbit_done")
-            return "wait_loop"
+        leg_dist = radius_vec.hypot(True)
+        d = perp_vec.hypot(True)
+        perp_normalized = VectorNED(perp_vec.north / d * leg_dist, perp_vec.east / d * leg_dist)
+
+        await drone.goto_coordinates(drone.position + perp_normalized)
         
-        return "orbit"
+        for _ in range(3):
+            perp_normalized = perp_normalized.rotate_by_angle(90)
+            await drone.goto_coordinates(drone.position + perp_normalized + perp_normalized)
+        
+        perp_normalized = perp_normalized.rotate_by_angle(90)
+        await drone.goto_coordinates(drone.position + perp_normalized)
+
+        await self.transition_runner(ZMQ_GROUND, "callback_orbiter_orbit_done")
+        return "wait_loop"
     
     @state(name="rtl")
     async def state_rtl(self, drone: Drone):

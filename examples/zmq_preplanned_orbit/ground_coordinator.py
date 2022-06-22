@@ -12,6 +12,14 @@ the pattern proposed in this script is to have each "command" be a state on indi
 thus, to make a drone do something, we transition their state from the central controller
 """
 
+# TODO collision avoidance ideas
+# fly drones at different alts?
+
+
+# TODO changes
+# for demo, start in geofence/test with enforced geofence before demo
+# for plan, two waypoints to simplify
+
 import asyncio
 from argparse import ArgumentParser
 import datetime
@@ -32,8 +40,6 @@ class GroundCoordinatorRunner(ZmqStateMachine):
 
     def initialize_args(self, extra_args: List[str]):
         # use an extra argument parser to read in custom script arguments
-        default_file = f"GPS_DATA_{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}.csv"
-        
         parser = ArgumentParser()
         parser.add_argument("--file", help="Mission plan file path.", required=True)
         args = parser.parse_args(args=extra_args)
@@ -134,6 +140,7 @@ class GroundCoordinatorRunner(ZmqStateMachine):
 
     @state(name="orbiter_start_orbit")
     async def state_orbiter_start_orbit(self, _):
+        self._orbiter_orbit_done = False
         await self.transition_runner(ZMQ_ORBITER, "orbit_tracer")
         return "await_orbiter_orbiting"
 
