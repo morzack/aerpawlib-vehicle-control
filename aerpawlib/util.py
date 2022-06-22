@@ -211,10 +211,10 @@ Waypoint = Tuple[int, float, float, float, int, float] # command, x, y, z, waypo
 
 _DEFAULT_WAYPOINT_SPEED = 5 # m/s
 
-_PLAN_CMD_TAKEOFF       = 22
-_PLAN_CMD_WAYPOINT      = 16
-_PLAN_CMD_RTL           = 20
-_PLAN_CMD_SPEED         = 178
+_PLAN_CMD_TAKEOFF   = 22
+_PLAN_CMD_WAYPOINT  = 16
+_PLAN_CMD_RTL       = 20
+_PLAN_CMD_SPEED     = 178
 
 def read_from_plan(path: str) -> List[Waypoint]:
     """
