@@ -12,14 +12,6 @@ the pattern proposed in this script is to have each "command" be a state on indi
 thus, to make a drone do something, we transition their state from the central controller
 """
 
-# TODO collision avoidance ideas
-# fly drones at different alts?
-
-
-# TODO changes
-# for demo, start in geofence/test with enforced geofence before demo
-# for plan, two waypoints to simplify
-
 import asyncio
 from argparse import ArgumentParser
 import datetime

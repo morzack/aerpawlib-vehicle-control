@@ -27,7 +27,7 @@ class OrbiterRunner(ZmqStateMachine):
     @state(name="take_off")
     async def state_take_off(self, drone: Drone):
         print("taking off")
-        await drone.takeoff(TAKEOFF_ALT)
+        await drone.takeoff(TAKEOFF_ALT + ALT_DIFF)
         await self.transition_runner(ZMQ_GROUND, "callback_orbiter_taken_off")
         return "wait_loop"
 
