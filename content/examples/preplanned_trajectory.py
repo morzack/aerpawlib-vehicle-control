@@ -38,6 +38,8 @@ from aerpawlib.runner import StateMachine, state, background, in_background, tim
 from aerpawlib.util import Coordinate, Waypoint, read_from_plan_complete
 from aerpawlib.vehicle import Drone
 
+DEFAULT_HEADING = 0 # 0 is north, set to None to enable yawing as it flies
+
 class PreplannedTrajectory(StateMachine):
     _waypoints = []
     _current_waypoint: int=0
@@ -146,7 +148,7 @@ class PreplannedTrajectory(StateMachine):
 
         # go to next waypoint
         coords = Coordinate(*waypoint["pos"])
-        in_background(drone.goto_coordinates(coords))
+        in_background(drone.goto_coordinates(coords), target_heading=DEFAULT_HEADING)
         return "in_transit"
 
     @state(name="in_transit")
@@ -184,6 +186,6 @@ class PreplannedTrajectory(StateMachine):
         # return to the take off location and stop the script
         home_coords = Coordinate(
                 drone.home_coords.lat, drone.home_coords.lon, drone.position.alt)
-        await drone.goto_coordinates(home_coords)
+        await drone.goto_coordinates(home_coords, target_heading=DEFAULT_HEADING)
         await drone.land()
         print("done!")
