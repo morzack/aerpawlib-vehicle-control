@@ -173,6 +173,10 @@ def expose_zmq(name: str):
     return decorator
 
 def expose_field_zmq(name: str):
+    """
+    Make a field requestable by querying it through zmq. The function decorated
+    by this will be called and the return value will be sent.
+    """
     # expose a function as a thing that can be called to get a field w/ zmq
     if name == "":
         raise Exception("field must be exposed with some name")
@@ -314,6 +318,15 @@ class StateMachine(Runner):
         self._running = False
 
 class ZmqStateMachine(StateMachine):
+    """
+    A `ZmqStateMachine` is a more complex state machine that interacts with zmq
+    in the background. Specifically, it is capable of having its state controlled
+    via zmq requets, as well as make zmq requests to other state machines through
+    the network. zmq will NOT work without using this type of runner.
+
+    For examples of how to structure programs using this, check out
+    `examples/zmq_preplanned_orbit` and `examples/zmq_runner`.
+    """
     _exported_states: Dict[str, _State]
 
     def _build(self):
@@ -331,7 +344,7 @@ class ZmqStateMachine(StateMachine):
     _zmq_identifier: str
     _zmq_proxy_server: str
 
-    def initialize_zmq_bindings(self, vehicle_identifier: str, proxy_server_addr: str):
+    def _initialize_zmq_bindings(self, vehicle_identifier: str, proxy_server_addr: str):
         self._zmq_identifier = vehicle_identifier
         self._zmq_proxy_server = proxy_server_addr
         self._zmq_context = zmq.asyncio.Context()
@@ -398,6 +411,10 @@ class ZmqStateMachine(StateMachine):
         await super().run(vehicle, build_before_running=False)
 
     async def transition_runner(self, identifier: str, state: str):
+        """
+        Use zmq to transition a runner within the network specified by `identifier`.
+        The state to be transitioned to is specified with `state`
+        """
         # transition a runner via zmq that is not this one
         # exposed to scripts via runner
         transition_obj = {
@@ -409,6 +426,11 @@ class ZmqStateMachine(StateMachine):
         await self._zmq_messages_sending.put(transition_obj)
 
     async def query_field(self, identifier: str, field: str):
+        """
+        Query a field from a zmq runner within the network specified by `identifier`.
+        The field to be queried is given by `field`. The value returned will be returned
+        by this function, and can be any python object.
+        """
         # make a runner publish some registered field to the zmq system
         # send a request and register a callback var
         # when the callback is received, continue this functioen

@@ -111,7 +111,7 @@ class GroundCoordinatorRunner(ZmqStateMachine):
     
     @state(name="await_in_transit")
     async def state_await_in_transit(self, _):
-        # wait for both drones to finish taking off
+        # wait for both drones to finish moving
         # this will be done by waiting for two flags to be set; each flag is set by transitioning to a special state
         if not (self._tracer_at_waypoint and self._orbiter_at_waypoint):
             return "await_in_transit"

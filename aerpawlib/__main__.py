@@ -80,7 +80,7 @@ if __name__ == "__main__":
         if None in [args.zmq_identifier, args.zmq_server_addr]:
             raise Exception("you must declare an identifier and server address for a zmq enabled state machine")
         print("initializing zmq bindings")
-        runner.initialize_zmq_bindings(args.zmq_identifier, args.zmq_server_addr)
+        runner._initialize_zmq_bindings(args.zmq_identifier, args.zmq_server_addr)
 
     asyncio.run(runner.run(vehicle))
     
