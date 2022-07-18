@@ -44,6 +44,24 @@ from . import util
 # time to wait when polling for dronekit vehicle state changes
 _POLLING_DELAY = 0.01 # s
 
+class DummyVehicle:
+    &#34;&#34;&#34;
+    vehicle for things that don&#39;t need vehicles :)
+
+    hacky lol
+    &#34;&#34;&#34;
+    def __init__(self, connection_string: str):
+        pass
+
+    def close(self):
+        pass
+
+    def _initialize_prearm(self, should_postarm_init):
+        pass
+
+    async def _initialize_postarm(self):
+        pass
+
 class Vehicle:
     &#34;&#34;&#34;
     Overarching &#34;generic vehicle&#34; type. Implements all functionality, excluding
@@ -785,6 +803,52 @@ is centered to avoid yaw during takeoff if the drone was <em>just</em> armed.</p
 </li>
 </ul>
 </dd>
+<dt id="aerpawlib.vehicle.DummyVehicle"><code class="flex name class">
+<span>class <span class="ident">DummyVehicle</span></span>
+<span>(</span><span>connection_string: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>vehicle for things that don't need vehicles :)</p>
+<p>hacky lol</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class DummyVehicle:
+    &#34;&#34;&#34;
+    vehicle for things that don&#39;t need vehicles :)
+
+    hacky lol
+    &#34;&#34;&#34;
+    def __init__(self, connection_string: str):
+        pass
+
+    def close(self):
+        pass
+
+    def _initialize_prearm(self, should_postarm_init):
+        pass
+
+    async def _initialize_postarm(self):
+        pass</code></pre>
+</details>
+<h3>Methods</h3>
+<dl>
+<dt id="aerpawlib.vehicle.DummyVehicle.close"><code class="name flex">
+<span>def <span class="ident">close</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def close(self):
+    pass</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
 <dt id="aerpawlib.vehicle.Rover"><code class="flex name class">
 <span>class <span class="ident">Rover</span></span>
 <span>(</span><span>connection_string: str)</span>
@@ -1425,6 +1489,12 @@ specified velocity until another command is sent.</p></div>
 <li><code><a title="aerpawlib.vehicle.Drone.land" href="#aerpawlib.vehicle.Drone.land">land</a></code></li>
 <li><code><a title="aerpawlib.vehicle.Drone.set_heading" href="#aerpawlib.vehicle.Drone.set_heading">set_heading</a></code></li>
 <li><code><a title="aerpawlib.vehicle.Drone.takeoff" href="#aerpawlib.vehicle.Drone.takeoff">takeoff</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="aerpawlib.vehicle.DummyVehicle" href="#aerpawlib.vehicle.DummyVehicle">DummyVehicle</a></code></h4>
+<ul class="">
+<li><code><a title="aerpawlib.vehicle.DummyVehicle.close" href="#aerpawlib.vehicle.DummyVehicle.close">close</a></code></li>
 </ul>
 </li>
 <li>

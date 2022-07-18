@@ -149,7 +149,7 @@ vec = y - x     # -&gt; VectorNED(-10, 5, 0)
 how you want to translate it, you have nearly full control over a vehicle's
 position.</p>
 <p>As an example, let's move a drone in a square pattern:</p>
-<pre><code>async def my_function(self, vehicle: Drone):
+<pre><code class="language-python">async def my_function(self, vehicle: Drone):
     # ...
     # go north
     await vehicle.goto_coordinates(vehicle.position + VectorNED(10, 0, 0))
@@ -267,6 +267,139 @@ talked about so far. It makes a drone continually "take measurements" spaced
     asnyc def land(self, vehicle: Vehicle):
         await vehicle.land()
 </code></pre>
+<h2 id="advanced-aerpawlib-multi-vehicle-control">Advanced aerpawlib: Multi-vehicle control</h2>
+<p>This is a continuation of the previous guide that will go over how to structure and write advanced aerpawlib scripts that control multiple vehicles.
+There is an expectation that the reader is familiar with aerpawlib, but no knowledge of the underlying stack (zmq) is needed.</p>
+<p>As aerpawlib's primary objective is to make it easy to translation mission logic into code, being able to support multi-vehicle experiments was a natural extension of its capabilities.
+This overarching goal was one of the driving factors behind the usage of state machines and async code.</p>
+<p>Notably, aerpawlib's multi-vehicle control architecture was designed to give as much flexibility to a user as possible, however it remains opinionated to a degree.
+Multi-vehicle control software is hard, there are many ways to implement it, and providing a single standard helps avoid unmaintainable logic (ultimately giving safer code :) ).</p>
+<h3 id="the-multi-vehicle-backend">The Multi-Vehicle Backend</h3>
+<p>aerpawlib's multi-vehicle control is built around a zmq pub/sub stack, which connects all aerpawlib scripts through a central proxy/"broker".
+This broker is a built in utility in aerpawlib, and can be run through the aerpawlib module.
+Each aerpawlib script must connect back to the broker and identify itself with an identifier &ndash; these identifiers are provided by the user at runtime, but should be known in advance to make writing code possible.</p>
+<p>There are two main exposed pieces of functionality within the aerpawlib multi-vehicle framework: transitioning the state of a runner, and querying some value from a runner.
+In the backend, these are implemented by routing requests to handler functions declared by the zmq runner, which in turn runs through each request as it comes in in a separate async function.</p>
+<h3 id="the-multi-vehicle-structure">The Multi-Vehicle Structure</h3>
+<p>As previously mentioned, aerpawlib is opnionated and designed around a set of design points.
+For multi-vehicle scripts, this is even more evident.
+It's difficult to explain the tenets in whole (examples are below), but here are the key points to keep in mind when designing aerpawlib scripts:</p>
+<ol>
+<li>aerpawlib scripts run on drones connected through mavproxy should implement <em>low-level commands</em> (ex: fly north 10m, return to launch)</li>
+<li>there should be one aerpawlib script not connected physically to a drone through mavproxy that implements <em>high-level experiment logic</em> (ex: send two drones to an area, tell drones to perform a grid scan)</li>
+</ol>
+<p>By decoupling experiment logic from drone control as much as possible, an experiment can keep its logic entirely within a singular state machine, only using the state machines on the vehicles to control the movement at a low level.</p>
+<h3 id="a-basic-multi-vehicle-script">A basic multi-vehicle script</h3>
+<p>With this knowledge in hand, we can now start to build a multi-vehicle experiment.
+This experiment is absed off the zmq_preplanned_orbit example.
+For the purposes of this demo, we want to fly two drones through a series of waypoints (determined by a .plan file), and have one drone "orbit" the other drone at each waypoint.
+The drones should remain synchronized with each other throughout the experiment.</p>
+<p>To make this happen, we need 3 aerpawlib scripts:</p>
+<ul>
+<li>ground_coordinator &ndash; this will read from the .plan file and send drones to coordinates</li>
+<li>drone_tracer &ndash; this will implement commands for the tracer drone, sending it from point to point</li>
+<li>drone_orbiter &ndash; this will implement commands for the orbiter drone, making it follow the tracer and orbit at certain points</li>
+</ul>
+<p>For the sake of brevity in this documentation page, all code is contained within the <code>examples/zmq_preplanned_orbit</code> folder.
+This will only pull snippets that implement specific patterns.</p>
+<h3 id="pattern-1-vehicle-control">Pattern 1: Vehicle Control</h3>
+<p>As mentioned previously, scripts running on a vehicle should only implement low-level mission commands.
+Let's look at a vehicle state machine to see how that's done.</p>
+<p><code>drone_tracer.py</code></p>
+<pre><code class="language-python">class TracerRunner(ZmqStateMachine):
+    # ...
+    @state(name=&quot;wait_loop&quot;, first=True)
+    async def state_wait_loop(self, _):
+        await asyncio.sleep(0.1)
+        return &quot;wait_loop&quot;
+
+    @state(name=&quot;next_waypoint&quot;)
+    async def state_next_waypoint(self, drone: Drone):
+        coords = await self.query_field(ZMQ_GROUND, &quot;tracer_next_waypoint&quot;)
+        await drone.goto_coordinates(coords)
+        await self.transition_runner(ZMQ_GROUND, &quot;callback_tracer_at_waypoint&quot;)
+        return &quot;wait_loop&quot;
+
+    # ...
+</code></pre>
+<p>Fundementally, there is always one resting state for the vehicle &ndash; <code>wait_loop</code>.
+This state will continually idle the state machine, not sending any commands to the underlying hardware.
+Other states such as <code>next_waypoint</code> are used to control the drone itself, in this case it gets a position managed by the ground station, sends the drone to it, and then reports back the completation of the task before returning to an idle state.</p>
+<p>Now, let's see what the ground control station is doing:</p>
+<p><code>ground_coordinator.py</code></p>
+<pre><code class="language-python">class GroundCoordinatorRunner(ZmqStateMachine):
+    # ...
+    @state(name=&quot;next_waypoint&quot;)
+    async def state_next_waypoint(self, _):
+        # ...
+        await self.transition_runner(ZMQ_TRACER, &quot;next_waypoint&quot;),
+        await self.transition_runner(ZMQ_ORBITER, &quot;next_waypoint&quot;),
+
+        self._tracer_at_waypoint = False
+        self._orbiter_at_waypoint = False
+
+        return &quot;await_in_transit&quot;
+
+    # funcs to calculate where each drone should go
+    @expose_field_zmq(name=&quot;tracer_next_waypoint&quot;)
+    async def get_tracer_next_waypoint(self, _):
+        waypoint = self._waypoints[self._current_waypoint]
+        coords = Coordinate(*waypoint[&quot;pos&quot;])
+        return coords
+
+    # ...
+
+    @state(name=&quot;await_in_transit&quot;)
+    async def state_await_in_transit(self, _):
+        if not (self._tracer_at_waypoint and self._orbiter_at_waypoint):
+            return &quot;await_in_transit&quot;
+        return &quot;orbiter_start_orbit&quot;
+
+    @state(name=&quot;callback_tracer_at_waypoint&quot;)
+    async def callback_tracer_at_waypoint(self, _):
+        self._tracer_at_waypoint = True
+        return &quot;await_in_transit&quot;
+
+    # ...
+</code></pre>
+<p>The entry point for this set of states is <code>next_waypoint</code>.
+Let's run through the flow:</p>
+<ol>
+<li>First, the ground station tells both drones to activate the <code>next_waypoint</code> state, which is the command discussed before.</li>
+<li>Then, the ground station sets two flags referencing command completion to false. These will be updated by the drones as they finish their commands.</li>
+<li>At this point the drones have begun their commands, and the ground station is now idling. When both flags are set to true by the drones, the script will continue.</li>
+<li>Some drone will now finish the command. It calls the callback (ex: <code>callback_tracer_at_waypoint</code>), setting the flag for that drone and immediately returning to the waiting loop.</li>
+<li>Finally, when both drones are done/both flags are set, the script can continue to the next state</li>
+</ol>
+<p>Syntactically, this is an ugly implementation, however it is clean and straightforwards.
+By centralizing flow, extremely complicated scripts can be developed that dodge potential spaghetti logic.</p>
+<h3 id="pattern-2-querying-fields">Pattern 2: Querying fields</h3>
+<p>Querying a field or value from another vehicle/script in aerpawlib is simple, you simply have to call the <code>query_field</code> function.
+This function will request the field from the relevant drone, blocking until it's received.
+An example is below:</p>
+<p><code>drone_orbiter.py</code></p>
+<pre><code class="language-python">class OrbiterRunner(ZmqStateMachine):
+    @expose_field_zmq(name=&quot;position&quot;)
+    async def get_drone_position(self, drone: Drone):
+        return drone.position
+    # ...
+</code></pre>
+<p><code>ground_coordinator.py</code></p>
+<pre><code class="language-python">class GroundCoordinatorRunner(ZmqStateMachine):
+    # ...
+    @expose_field_zmq(name=&quot;orbiter_next_waypoint&quot;)
+    async def get_orbiter_next_waypoint(self, _):
+        waypoint = self._waypoints[self._current_waypoint]
+        coords = Coordinate(*waypoint[&quot;pos&quot;])
+        # note the query_field being awaited
+        tracer_pos = await self.query_field(ZMQ_TRACER, &quot;position&quot;)
+        tracer_delta = coords - tracer_pos
+        # note the query_field being awaited, again
+        orbiter_pos = await self.query_field(ZMQ_ORBITER, &quot;position&quot;)
+        orbiter_next_pos = orbiter_pos + tracer_delta
+        return orbiter_next_pos
+    # ...
+</code></pre>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -311,6 +444,10 @@ runnable using aerpawlib. The most basic framework is <code>Runner</code> &ndash
 <div class="desc"><p>Core logic surrounding the various <code>Vehicle</code>s available to aerpawlib user
 scripts</p></div>
 </dd>
+<dt><code class="name"><a title="aerpawlib.zmqutil" href="zmqutil.html">aerpawlib.zmqutil</a></code></dt>
+<dd>
+<div class="desc"></div>
+</dd>
 </dl>
 </section>
 <section>
@@ -335,6 +472,14 @@ scripts</p></div>
 <li><a href="#creating-a-state-machine">Creating a state machine</a></li>
 </ul>
 </li>
+<li><a href="#advanced-aerpawlib-multi-vehicle-control">Advanced aerpawlib: Multi-vehicle control</a><ul>
+<li><a href="#the-multi-vehicle-backend">The Multi-Vehicle Backend</a></li>
+<li><a href="#the-multi-vehicle-structure">The Multi-Vehicle Structure</a></li>
+<li><a href="#a-basic-multi-vehicle-script">A basic multi-vehicle script</a></li>
+<li><a href="#pattern-1-vehicle-control">Pattern 1: Vehicle Control</a></li>
+<li><a href="#pattern-2-querying-fields">Pattern 2: Querying fields</a></li>
+</ul>
+</li>
 </ul>
 </div>
 <ul id="index">
@@ -345,6 +490,7 @@ scripts</p></div>
 <li><code><a title="aerpawlib.test" href="test/index.html">aerpawlib.test</a></code></li>
 <li><code><a title="aerpawlib.util" href="util.html">aerpawlib.util</a></code></li>
 <li><code><a title="aerpawlib.vehicle" href="vehicle.html">aerpawlib.vehicle</a></code></li>
+<li><code><a title="aerpawlib.zmqutil" href="zmqutil.html">aerpawlib.zmqutil</a></code></li>
 </ul>
 </li>
 </ul>

@@ -42,7 +42,11 @@ from enum import Enum, auto
 import inspect
 from typing import Callable, Dict, List
 
+import zmq
+import zmq.asyncio
+
 from .vehicle import Vehicle
+from .zmqutil import *
 
 class Runner:
     &#34;&#34;&#34;
@@ -191,6 +195,30 @@ def timed_state(name: str, duration: float, loop=False, first: bool=False):
         return func
     return decorator
 
+# TODO do something w/ this? why not just export all states perhaps
+def expose_zmq(name: str):
+    if name == &#34;&#34;:
+        raise Exception(&#34;state must be exported with some binding&#34;)
+    def decorator(func):
+        func._is_exposed_zmq = True
+        func._zmq_name = name
+        return func
+    return decorator
+
+def expose_field_zmq(name: str):
+    &#34;&#34;&#34;
+    Make a field requestable by querying it through zmq. The function decorated
+    by this will be called and the return value will be sent.
+    &#34;&#34;&#34;
+    # expose a function as a thing that can be called to get a field w/ zmq
+    if name == &#34;&#34;:
+        raise Exception(&#34;field must be exposed with some name&#34;)
+    def decorator(func):
+        func._is_exposed_field_zmq = True
+        func._zmq_name = name
+        return func
+    return decorator
+
 _BackgroundTask = Callable[[Runner, Vehicle], None]
 
 def background(func):
@@ -246,6 +274,7 @@ class StateMachine(Runner):
     _initialization_tasks: List[_InitializationTask]
     _entrypoint: str
     _current_state: str
+    _override_next_state_transition: bool
     _running: bool
 
     def _build(self):
@@ -275,10 +304,13 @@ class StateMachine(Runner):
                     await t.__func__(self, vehicle)
             asyncio.ensure_future(_task_runner())
 
-    async def run(self, vehicle: Vehicle):
-        self._build()
+    async def run(self, vehicle: Vehicle, build_before_running=True):
+        if build_before_running:
+            self._build()
         assert self._entrypoint
         self._current_state = self._entrypoint
+        self._override_next_state_transition = False
+        self._next_state_overr = &#34;&#34;
         self._running = True
         
 
@@ -290,11 +322,21 @@ class StateMachine(Runner):
         
         await self._start_background_tasks(vehicle)
         
+        await asyncio.sleep(1) # wait for background tasks to start :p
+        
         while self._running:
             if self._current_state not in self._states:
                 print(self._current_state)
+                print(self._states)
                 raise Exception(&#34;Illegal state&#34;)
-            self._current_state = await self._states[self._current_state].run(self, vehicle)
+            
+            next_state = await self._states[self._current_state].run(self, vehicle)
+            if self._override_next_state_transition:
+                self._override_next_state_transition = False
+                self._current_state = self._next_state_overr
+            else:
+                self._current_state = next_state
+            
             if self._current_state is None:
                 self.stop()
             await asyncio.sleep(_STATE_DELAY)
@@ -307,6 +349,148 @@ class StateMachine(Runner):
         at the end of a state&#39;s execution.
         &#34;&#34;&#34;
         self._running = False
+
+class ZmqStateMachine(StateMachine):
+    &#34;&#34;&#34;
+    A `ZmqStateMachine` is a more complex state machine that interacts with zmq
+    in the background. Specifically, it is capable of having its state controlled
+    via zmq requets, as well as make zmq requests to other state machines through
+    the network. zmq will NOT work without using this type of runner.
+
+    For examples of how to structure programs using this, check out
+    `examples/zmq_preplanned_orbit` and `examples/zmq_runner`.
+    &#34;&#34;&#34;
+    _exported_states: Dict[str, _State]
+
+    def _build(self):
+        super()._build()
+        self._exported_states = {}
+        self._exported_fields = {}
+        for _, method in inspect.getmembers(self):
+            if not inspect.ismethod(method):
+                continue
+            if hasattr(method, &#34;_is_exposed_zmq&#34;):
+                self._exported_states[method._zmq_name] = _State(method, method._zmq_name)
+            elif hasattr(method, &#34;_is_exposed_field_zmq&#34;):
+                self._exported_fields[method._zmq_name] = method
+
+    _zmq_identifier: str
+    _zmq_proxy_server: str
+
+    def _initialize_zmq_bindings(self, vehicle_identifier: str, proxy_server_addr: str):
+        self._zmq_identifier = vehicle_identifier
+        self._zmq_proxy_server = proxy_server_addr
+        self._zmq_context = zmq.asyncio.Context()
+
+    @background
+    async def _zmg_bg_sub(self, vehicle: Vehicle):
+        socket = zmq.asyncio.Socket(context=self._zmq_context, io_loop=asyncio.get_event_loop(), socket_type=zmq.SUB)
+        socket.connect(f&#34;tcp://{self._zmq_proxy_server}:{ZMQ_PROXY_OUT_PORT}&#34;)
+
+        socket.setsockopt_string(zmq.SUBSCRIBE, &#34;&#34;)
+        self._zmq_messages_handling = asyncio.Queue()
+        self._zmq_received_fields = {} # indexed by [identifier][field]
+
+        print(&#34;starting sub&#34;)
+        while self._running:
+            message = await socket.recv_pyobj()
+            # await self._zmq_messages_handling.put(message)
+            if message[&#34;identifier&#34;] != self._zmq_identifier:
+                continue
+            print(f&#34;recv {message}&#34;)
+            asyncio.ensure_future(self._zmq_handle_request(vehicle, message))
+
+    async def _zmq_handle_request(self, vehicle: Vehicle, message):
+        if message[&#34;msg_type&#34;] == ZMQ_TYPE_TRANSITION:
+            next_state = message[&#34;next_state&#34;]
+            self._next_state_overr = next_state
+            self._override_next_state_transition = True
+        elif message[&#34;msg_type&#34;] == ZMQ_TYPE_FIELD_REQUEST:
+            field = message[&#34;field&#34;]
+            return_val = None
+            if field in self._exported_fields:
+                return_val = await self._exported_fields[field](vehicle)
+            await self._reply_queried_field(message[&#34;from&#34;], field, return_val)
+        elif message[&#34;msg_type&#34;] == ZMQ_TYPE_FIELD_CALLBACK:
+            field = message[&#34;field&#34;]
+            value = message[&#34;value&#34;]
+            msg_from = message[&#34;from&#34;]
+            self._zmq_received_fields[msg_from][field] = value
+        
+    @background
+    async def _zmq_bg_pub(self, _: Vehicle):
+        # pub side of things is just sending from a queue
+        self._zmq_messages_sending = asyncio.Queue()
+        socket = zmq.asyncio.Socket(context=self._zmq_context, io_loop=asyncio.get_event_loop(), socket_type=zmq.PUB)
+        socket.connect(f&#34;tcp://{self._zmq_proxy_server}:{ZMQ_PROXY_IN_PORT}&#34;)
+        while self._running:
+            msg_sending = await self._zmq_messages_sending.get()
+            await socket.send_pyobj(msg_sending)
+
+    async def run(self, vehicle: Vehicle, zmq_proxy=False):
+        # must build in advance to get zmq stuff up
+        # avoid late rebuild by parent
+        self._build()
+
+        # if we&#39;re the base station, enable zmq_proxying
+        # TODO
+        # if zmq_proxy:
+        #     self._background_tasks.append(self._zmq_bg_proxy)
+        # self._background_tasks.extend([self._zmq_bg_pub, self._zmq_bg_sub])
+
+        if None in [self._zmq_identifier, self._zmq_proxy_server]:
+            raise Exception(&#34;initialize_zmq_bindings must be used w/ a zmq runner&#34;)
+        
+        await super().run(vehicle, build_before_running=False)
+
+    async def transition_runner(self, identifier: str, state: str):
+        &#34;&#34;&#34;
+        Use zmq to transition a runner within the network specified by `identifier`.
+        The state to be transitioned to is specified with `state`
+        &#34;&#34;&#34;
+        # transition a runner via zmq that is not this one
+        # exposed to scripts via runner
+        transition_obj = {
+                &#34;msg_type&#34;: ZMQ_TYPE_TRANSITION,
+                &#34;from&#34;: self._zmq_identifier,
+                &#34;identifier&#34;: identifier,
+                &#34;next_state&#34;: state,
+                }
+        await self._zmq_messages_sending.put(transition_obj)
+
+    async def query_field(self, identifier: str, field: str):
+        &#34;&#34;&#34;
+        Query a field from a zmq runner within the network specified by `identifier`.
+        The field to be queried is given by `field`. The value returned will be returned
+        by this function, and can be any python object.
+        &#34;&#34;&#34;
+        # make a runner publish some registered field to the zmq system
+        # send a request and register a callback var
+        # when the callback is received, continue this functioen
+        # TODO None vs nil??
+        if identifier not in self._zmq_received_fields:
+            self._zmq_received_fields[identifier] = {}
+        self._zmq_received_fields[identifier][field] = None
+        query_obj = {
+                &#34;msg_type&#34;: ZMQ_TYPE_FIELD_REQUEST,
+                &#34;from&#34;: self._zmq_identifier,
+                &#34;identifier&#34;: identifier,
+                &#34;field&#34;: field,
+                }
+        await self._zmq_messages_sending.put(query_obj)
+        while self._zmq_received_fields[identifier][field] == None:
+            await asyncio.sleep(0.01)
+        return self._zmq_received_fields[identifier][field]
+
+    async def _reply_queried_field(self, identifier: str, field: str, value):
+        reply_obj = {
+                &#34;msg_type&#34;: ZMQ_TYPE_FIELD_CALLBACK,
+                &#34;from&#34;: self._zmq_identifier,
+                &#34;identifier&#34;: identifier,
+                &#34;field&#34;: field,
+                &#34;value&#34;: value,
+                }
+        await self._zmq_messages_sending.put(reply_obj)
 
 # helper functions for working with asyncio code
 
@@ -404,6 +588,50 @@ scripts.</p>
     &#34;&#34;&#34;
     func._entrypoint = True
     return func</code></pre>
+</details>
+</dd>
+<dt id="aerpawlib.runner.expose_field_zmq"><code class="name flex">
+<span>def <span class="ident">expose_field_zmq</span></span>(<span>name: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Make a field requestable by querying it through zmq. The function decorated
+by this will be called and the return value will be sent.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def expose_field_zmq(name: str):
+    &#34;&#34;&#34;
+    Make a field requestable by querying it through zmq. The function decorated
+    by this will be called and the return value will be sent.
+    &#34;&#34;&#34;
+    # expose a function as a thing that can be called to get a field w/ zmq
+    if name == &#34;&#34;:
+        raise Exception(&#34;field must be exposed with some name&#34;)
+    def decorator(func):
+        func._is_exposed_field_zmq = True
+        func._zmq_name = name
+        return func
+    return decorator</code></pre>
+</details>
+</dd>
+<dt id="aerpawlib.runner.expose_zmq"><code class="name flex">
+<span>def <span class="ident">expose_zmq</span></span>(<span>name: str)</span>
+</code></dt>
+<dd>
+<div class="desc"></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def expose_zmq(name: str):
+    if name == &#34;&#34;:
+        raise Exception(&#34;state must be exported with some binding&#34;)
+    def decorator(func):
+        func._is_exposed_zmq = True
+        func._zmq_name = name
+        return func
+    return decorator</code></pre>
 </details>
 </dd>
 <dt id="aerpawlib.runner.state"><code class="name flex">
@@ -696,6 +924,7 @@ to any state execution.</p>
     _initialization_tasks: List[_InitializationTask]
     _entrypoint: str
     _current_state: str
+    _override_next_state_transition: bool
     _running: bool
 
     def _build(self):
@@ -725,10 +954,13 @@ to any state execution.</p>
                     await t.__func__(self, vehicle)
             asyncio.ensure_future(_task_runner())
 
-    async def run(self, vehicle: Vehicle):
-        self._build()
+    async def run(self, vehicle: Vehicle, build_before_running=True):
+        if build_before_running:
+            self._build()
         assert self._entrypoint
         self._current_state = self._entrypoint
+        self._override_next_state_transition = False
+        self._next_state_overr = &#34;&#34;
         self._running = True
         
 
@@ -740,11 +972,21 @@ to any state execution.</p>
         
         await self._start_background_tasks(vehicle)
         
+        await asyncio.sleep(1) # wait for background tasks to start :p
+        
         while self._running:
             if self._current_state not in self._states:
                 print(self._current_state)
+                print(self._states)
                 raise Exception(&#34;Illegal state&#34;)
-            self._current_state = await self._states[self._current_state].run(self, vehicle)
+            
+            next_state = await self._states[self._current_state].run(self, vehicle)
+            if self._override_next_state_transition:
+                self._override_next_state_transition = False
+                self._current_state = self._next_state_overr
+            else:
+                self._current_state = next_state
+            
             if self._current_state is None:
                 self.stop()
             await asyncio.sleep(_STATE_DELAY)
@@ -761,6 +1003,10 @@ to any state execution.</p>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li><a title="aerpawlib.runner.Runner" href="#aerpawlib.runner.Runner">Runner</a></li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="aerpawlib.runner.ZmqStateMachine" href="#aerpawlib.runner.ZmqStateMachine">ZmqStateMachine</a></li>
 </ul>
 <h3>Methods</h3>
 <dl>
@@ -796,6 +1042,244 @@ at the end of a state's execution.</p></div>
 </li>
 </ul>
 </dd>
+<dt id="aerpawlib.runner.ZmqStateMachine"><code class="flex name class">
+<span>class <span class="ident">ZmqStateMachine</span></span>
+</code></dt>
+<dd>
+<div class="desc"><p>A <code><a title="aerpawlib.runner.ZmqStateMachine" href="#aerpawlib.runner.ZmqStateMachine">ZmqStateMachine</a></code> is a more complex state machine that interacts with zmq
+in the background. Specifically, it is capable of having its state controlled
+via zmq requets, as well as make zmq requests to other state machines through
+the network. zmq will NOT work without using this type of runner.</p>
+<p>For examples of how to structure programs using this, check out
+<code>examples/zmq_preplanned_orbit</code> and <code>examples/zmq_runner</code>.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class ZmqStateMachine(StateMachine):
+    &#34;&#34;&#34;
+    A `ZmqStateMachine` is a more complex state machine that interacts with zmq
+    in the background. Specifically, it is capable of having its state controlled
+    via zmq requets, as well as make zmq requests to other state machines through
+    the network. zmq will NOT work without using this type of runner.
+
+    For examples of how to structure programs using this, check out
+    `examples/zmq_preplanned_orbit` and `examples/zmq_runner`.
+    &#34;&#34;&#34;
+    _exported_states: Dict[str, _State]
+
+    def _build(self):
+        super()._build()
+        self._exported_states = {}
+        self._exported_fields = {}
+        for _, method in inspect.getmembers(self):
+            if not inspect.ismethod(method):
+                continue
+            if hasattr(method, &#34;_is_exposed_zmq&#34;):
+                self._exported_states[method._zmq_name] = _State(method, method._zmq_name)
+            elif hasattr(method, &#34;_is_exposed_field_zmq&#34;):
+                self._exported_fields[method._zmq_name] = method
+
+    _zmq_identifier: str
+    _zmq_proxy_server: str
+
+    def _initialize_zmq_bindings(self, vehicle_identifier: str, proxy_server_addr: str):
+        self._zmq_identifier = vehicle_identifier
+        self._zmq_proxy_server = proxy_server_addr
+        self._zmq_context = zmq.asyncio.Context()
+
+    @background
+    async def _zmg_bg_sub(self, vehicle: Vehicle):
+        socket = zmq.asyncio.Socket(context=self._zmq_context, io_loop=asyncio.get_event_loop(), socket_type=zmq.SUB)
+        socket.connect(f&#34;tcp://{self._zmq_proxy_server}:{ZMQ_PROXY_OUT_PORT}&#34;)
+
+        socket.setsockopt_string(zmq.SUBSCRIBE, &#34;&#34;)
+        self._zmq_messages_handling = asyncio.Queue()
+        self._zmq_received_fields = {} # indexed by [identifier][field]
+
+        print(&#34;starting sub&#34;)
+        while self._running:
+            message = await socket.recv_pyobj()
+            # await self._zmq_messages_handling.put(message)
+            if message[&#34;identifier&#34;] != self._zmq_identifier:
+                continue
+            print(f&#34;recv {message}&#34;)
+            asyncio.ensure_future(self._zmq_handle_request(vehicle, message))
+
+    async def _zmq_handle_request(self, vehicle: Vehicle, message):
+        if message[&#34;msg_type&#34;] == ZMQ_TYPE_TRANSITION:
+            next_state = message[&#34;next_state&#34;]
+            self._next_state_overr = next_state
+            self._override_next_state_transition = True
+        elif message[&#34;msg_type&#34;] == ZMQ_TYPE_FIELD_REQUEST:
+            field = message[&#34;field&#34;]
+            return_val = None
+            if field in self._exported_fields:
+                return_val = await self._exported_fields[field](vehicle)
+            await self._reply_queried_field(message[&#34;from&#34;], field, return_val)
+        elif message[&#34;msg_type&#34;] == ZMQ_TYPE_FIELD_CALLBACK:
+            field = message[&#34;field&#34;]
+            value = message[&#34;value&#34;]
+            msg_from = message[&#34;from&#34;]
+            self._zmq_received_fields[msg_from][field] = value
+        
+    @background
+    async def _zmq_bg_pub(self, _: Vehicle):
+        # pub side of things is just sending from a queue
+        self._zmq_messages_sending = asyncio.Queue()
+        socket = zmq.asyncio.Socket(context=self._zmq_context, io_loop=asyncio.get_event_loop(), socket_type=zmq.PUB)
+        socket.connect(f&#34;tcp://{self._zmq_proxy_server}:{ZMQ_PROXY_IN_PORT}&#34;)
+        while self._running:
+            msg_sending = await self._zmq_messages_sending.get()
+            await socket.send_pyobj(msg_sending)
+
+    async def run(self, vehicle: Vehicle, zmq_proxy=False):
+        # must build in advance to get zmq stuff up
+        # avoid late rebuild by parent
+        self._build()
+
+        # if we&#39;re the base station, enable zmq_proxying
+        # TODO
+        # if zmq_proxy:
+        #     self._background_tasks.append(self._zmq_bg_proxy)
+        # self._background_tasks.extend([self._zmq_bg_pub, self._zmq_bg_sub])
+
+        if None in [self._zmq_identifier, self._zmq_proxy_server]:
+            raise Exception(&#34;initialize_zmq_bindings must be used w/ a zmq runner&#34;)
+        
+        await super().run(vehicle, build_before_running=False)
+
+    async def transition_runner(self, identifier: str, state: str):
+        &#34;&#34;&#34;
+        Use zmq to transition a runner within the network specified by `identifier`.
+        The state to be transitioned to is specified with `state`
+        &#34;&#34;&#34;
+        # transition a runner via zmq that is not this one
+        # exposed to scripts via runner
+        transition_obj = {
+                &#34;msg_type&#34;: ZMQ_TYPE_TRANSITION,
+                &#34;from&#34;: self._zmq_identifier,
+                &#34;identifier&#34;: identifier,
+                &#34;next_state&#34;: state,
+                }
+        await self._zmq_messages_sending.put(transition_obj)
+
+    async def query_field(self, identifier: str, field: str):
+        &#34;&#34;&#34;
+        Query a field from a zmq runner within the network specified by `identifier`.
+        The field to be queried is given by `field`. The value returned will be returned
+        by this function, and can be any python object.
+        &#34;&#34;&#34;
+        # make a runner publish some registered field to the zmq system
+        # send a request and register a callback var
+        # when the callback is received, continue this functioen
+        # TODO None vs nil??
+        if identifier not in self._zmq_received_fields:
+            self._zmq_received_fields[identifier] = {}
+        self._zmq_received_fields[identifier][field] = None
+        query_obj = {
+                &#34;msg_type&#34;: ZMQ_TYPE_FIELD_REQUEST,
+                &#34;from&#34;: self._zmq_identifier,
+                &#34;identifier&#34;: identifier,
+                &#34;field&#34;: field,
+                }
+        await self._zmq_messages_sending.put(query_obj)
+        while self._zmq_received_fields[identifier][field] == None:
+            await asyncio.sleep(0.01)
+        return self._zmq_received_fields[identifier][field]
+
+    async def _reply_queried_field(self, identifier: str, field: str, value):
+        reply_obj = {
+                &#34;msg_type&#34;: ZMQ_TYPE_FIELD_CALLBACK,
+                &#34;from&#34;: self._zmq_identifier,
+                &#34;identifier&#34;: identifier,
+                &#34;field&#34;: field,
+                &#34;value&#34;: value,
+                }
+        await self._zmq_messages_sending.put(reply_obj)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="aerpawlib.runner.StateMachine" href="#aerpawlib.runner.StateMachine">StateMachine</a></li>
+<li><a title="aerpawlib.runner.Runner" href="#aerpawlib.runner.Runner">Runner</a></li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="aerpawlib.runner.ZmqStateMachine.query_field"><code class="name flex">
+<span>async def <span class="ident">query_field</span></span>(<span>self, identifier: str, field: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Query a field from a zmq runner within the network specified by <code>identifier</code>.
+The field to be queried is given by <code>field</code>. The value returned will be returned
+by this function, and can be any python object.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def query_field(self, identifier: str, field: str):
+    &#34;&#34;&#34;
+    Query a field from a zmq runner within the network specified by `identifier`.
+    The field to be queried is given by `field`. The value returned will be returned
+    by this function, and can be any python object.
+    &#34;&#34;&#34;
+    # make a runner publish some registered field to the zmq system
+    # send a request and register a callback var
+    # when the callback is received, continue this functioen
+    # TODO None vs nil??
+    if identifier not in self._zmq_received_fields:
+        self._zmq_received_fields[identifier] = {}
+    self._zmq_received_fields[identifier][field] = None
+    query_obj = {
+            &#34;msg_type&#34;: ZMQ_TYPE_FIELD_REQUEST,
+            &#34;from&#34;: self._zmq_identifier,
+            &#34;identifier&#34;: identifier,
+            &#34;field&#34;: field,
+            }
+    await self._zmq_messages_sending.put(query_obj)
+    while self._zmq_received_fields[identifier][field] == None:
+        await asyncio.sleep(0.01)
+    return self._zmq_received_fields[identifier][field]</code></pre>
+</details>
+</dd>
+<dt id="aerpawlib.runner.ZmqStateMachine.transition_runner"><code class="name flex">
+<span>async def <span class="ident">transition_runner</span></span>(<span>self, identifier: str, state: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Use zmq to transition a runner within the network specified by <code>identifier</code>.
+The state to be transitioned to is specified with <code><a title="aerpawlib.runner.state" href="#aerpawlib.runner.state">state()</a></code></p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">async def transition_runner(self, identifier: str, state: str):
+    &#34;&#34;&#34;
+    Use zmq to transition a runner within the network specified by `identifier`.
+    The state to be transitioned to is specified with `state`
+    &#34;&#34;&#34;
+    # transition a runner via zmq that is not this one
+    # exposed to scripts via runner
+    transition_obj = {
+            &#34;msg_type&#34;: ZMQ_TYPE_TRANSITION,
+            &#34;from&#34;: self._zmq_identifier,
+            &#34;identifier&#34;: identifier,
+            &#34;next_state&#34;: state,
+            }
+    await self._zmq_messages_sending.put(transition_obj)</code></pre>
+</details>
+</dd>
+</dl>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code><b><a title="aerpawlib.runner.StateMachine" href="#aerpawlib.runner.StateMachine">StateMachine</a></b></code>:
+<ul class="hlist">
+<li><code><a title="aerpawlib.runner.StateMachine.cleanup" href="#aerpawlib.runner.Runner.cleanup">cleanup</a></code></li>
+<li><code><a title="aerpawlib.runner.StateMachine.initialize_args" href="#aerpawlib.runner.Runner.initialize_args">initialize_args</a></code></li>
+<li><code><a title="aerpawlib.runner.StateMachine.run" href="#aerpawlib.runner.Runner.run">run</a></code></li>
+<li><code><a title="aerpawlib.runner.StateMachine.stop" href="#aerpawlib.runner.StateMachine.stop">stop</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
 </dl>
 </section>
 </article>
@@ -811,10 +1295,12 @@ at the end of a state's execution.</p></div>
 </ul>
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
-<ul class="">
+<ul class="two-column">
 <li><code><a title="aerpawlib.runner.at_init" href="#aerpawlib.runner.at_init">at_init</a></code></li>
 <li><code><a title="aerpawlib.runner.background" href="#aerpawlib.runner.background">background</a></code></li>
 <li><code><a title="aerpawlib.runner.entrypoint" href="#aerpawlib.runner.entrypoint">entrypoint</a></code></li>
+<li><code><a title="aerpawlib.runner.expose_field_zmq" href="#aerpawlib.runner.expose_field_zmq">expose_field_zmq</a></code></li>
+<li><code><a title="aerpawlib.runner.expose_zmq" href="#aerpawlib.runner.expose_zmq">expose_zmq</a></code></li>
 <li><code><a title="aerpawlib.runner.state" href="#aerpawlib.runner.state">state</a></code></li>
 <li><code><a title="aerpawlib.runner.timed_state" href="#aerpawlib.runner.timed_state">timed_state</a></code></li>
 </ul>
@@ -836,6 +1322,13 @@ at the end of a state's execution.</p></div>
 <h4><code><a title="aerpawlib.runner.StateMachine" href="#aerpawlib.runner.StateMachine">StateMachine</a></code></h4>
 <ul class="">
 <li><code><a title="aerpawlib.runner.StateMachine.stop" href="#aerpawlib.runner.StateMachine.stop">stop</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="aerpawlib.runner.ZmqStateMachine" href="#aerpawlib.runner.ZmqStateMachine">ZmqStateMachine</a></code></h4>
+<ul class="">
+<li><code><a title="aerpawlib.runner.ZmqStateMachine.query_field" href="#aerpawlib.runner.ZmqStateMachine.query_field">query_field</a></code></li>
+<li><code><a title="aerpawlib.runner.ZmqStateMachine.transition_runner" href="#aerpawlib.runner.ZmqStateMachine.transition_runner">transition_runner</a></code></li>
 </ul>
 </li>
 </ul>
