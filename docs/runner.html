@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
-<meta name="generator" content="pdoc 0.9.2" />
+<meta name="generator" content="pdoc 0.10.0" />
 <title>aerpawlib.runner API documentation</title>
 <meta name="description" content="Collection of execution frameworks that can be extended to make scripts
 runnable using aerpawlib. The most basic framework is `Runner` -- any custom
@@ -200,8 +200,29 @@ def background(func):
     thread-safety into consideration.
 
     The function decorated by this is expected to be `async`
+
+    When using @background, make sure to incorporate some kind of delay.
+    Without any delay, an @background thread can eat all the python
+    instance&#39;s CPU
     &#34;&#34;&#34;
     func._is_background = True
+    return func
+
+_InitializationTask = Callable[[Runner, Vehicle], None]
+
+def at_init(func):
+    &#34;&#34;&#34;
+    Designate a function to be run at vehicle initialization and before vehicle
+    arming (or at least the prompt to arm). The vehicle will not be armable
+    until after all `at_init` functions finish executing.
+    
+    The function designated should have a signature that accepts a Vehicle.
+
+    The function decorated by this is expected to be `async`. If there are
+    multiple functions marked with `at_init`, they will all be run at the same
+    time.
+    &#34;&#34;&#34;
+    func._run_at_init = True
     return func
 
 _STATE_DELAY = 0.01 # s between each time the state update is called
@@ -222,6 +243,7 @@ class StateMachine(Runner):
 
     _states: Dict[str, _State]
     _background_tasks: List[_BackgroundTask]
+    _initialization_tasks: List[_InitializationTask]
     _entrypoint: str
     _current_state: str
     _running: bool
@@ -229,6 +251,7 @@ class StateMachine(Runner):
     def _build(self):
         self._states = {}
         self._background_tasks = []
+        self._initialization_tasks = []
         for _, method in inspect.getmembers(self):
             if not inspect.ismethod(method):
                 continue
@@ -240,6 +263,8 @@ class StateMachine(Runner):
                     raise Exception(&#34;There may only be one initial state&#34;)
             if hasattr(method, &#34;_is_background&#34;):
                 self._background_tasks.append(method)
+            if hasattr(method, &#34;_run_at_init&#34;):
+                self._initialization_tasks.append(method)
         if not self._entrypoint:
             raise Exception(&#34;There is no initial state&#34;)
     
@@ -255,7 +280,16 @@ class StateMachine(Runner):
         assert self._entrypoint
         self._current_state = self._entrypoint
         self._running = True
+        
+
+        if len(self._initialization_tasks) != 0:
+            await asyncio.wait({f(vehicle) for f in self._initialization_tasks})
+        
+        print(&#34;[aerpawlib] Initialization tasks complete. Waiting for safety pilot to arm&#34;)
+        await vehicle._initialize_postarm()
+        
         await self._start_background_tasks(vehicle)
+        
         while self._running:
             if self._current_state not in self._states:
                 print(self._current_state)
@@ -288,6 +322,37 @@ sleep = asyncio.sleep</code></pre>
 <section>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
+<dt id="aerpawlib.runner.at_init"><code class="name flex">
+<span>def <span class="ident">at_init</span></span>(<span>func)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Designate a function to be run at vehicle initialization and before vehicle
+arming (or at least the prompt to arm). The vehicle will not be armable
+until after all <code><a title="aerpawlib.runner.at_init" href="#aerpawlib.runner.at_init">at_init()</a></code> functions finish executing.</p>
+<p>The function designated should have a signature that accepts a Vehicle.</p>
+<p>The function decorated by this is expected to be <code>async</code>. If there are
+multiple functions marked with <code><a title="aerpawlib.runner.at_init" href="#aerpawlib.runner.at_init">at_init()</a></code>, they will all be run at the same
+time.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def at_init(func):
+    &#34;&#34;&#34;
+    Designate a function to be run at vehicle initialization and before vehicle
+    arming (or at least the prompt to arm). The vehicle will not be armable
+    until after all `at_init` functions finish executing.
+    
+    The function designated should have a signature that accepts a Vehicle.
+
+    The function decorated by this is expected to be `async`. If there are
+    multiple functions marked with `at_init`, they will all be run at the same
+    time.
+    &#34;&#34;&#34;
+    func._run_at_init = True
+    return func</code></pre>
+</details>
+</dd>
 <dt id="aerpawlib.runner.background"><code class="name flex">
 <span>def <span class="ident">background</span></span>(<span>func)</span>
 </code></dt>
@@ -295,7 +360,10 @@ sleep = asyncio.sleep</code></pre>
 <div class="desc"><p>Designate a function to be run in parallel to a given StateMachine.
 By <code>asyncio</code>'s design, background function's don't have to take
 thread-safety into consideration.</p>
-<p>The function decorated by this is expected to be <code>async</code></p></div>
+<p>The function decorated by this is expected to be <code>async</code></p>
+<p>When using @background, make sure to incorporate some kind of delay.
+Without any delay, an @background thread can eat all the python
+instance's CPU</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -307,6 +375,10 @@ thread-safety into consideration.</p>
     thread-safety into consideration.
 
     The function decorated by this is expected to be `async`
+
+    When using @background, make sure to incorporate some kind of delay.
+    Without any delay, an @background thread can eat all the python
+    instance&#39;s CPU
     &#34;&#34;&#34;
     func._is_background = True
     return func</code></pre>
@@ -621,6 +693,7 @@ to any state execution.</p>
 
     _states: Dict[str, _State]
     _background_tasks: List[_BackgroundTask]
+    _initialization_tasks: List[_InitializationTask]
     _entrypoint: str
     _current_state: str
     _running: bool
@@ -628,6 +701,7 @@ to any state execution.</p>
     def _build(self):
         self._states = {}
         self._background_tasks = []
+        self._initialization_tasks = []
         for _, method in inspect.getmembers(self):
             if not inspect.ismethod(method):
                 continue
@@ -639,6 +713,8 @@ to any state execution.</p>
                     raise Exception(&#34;There may only be one initial state&#34;)
             if hasattr(method, &#34;_is_background&#34;):
                 self._background_tasks.append(method)
+            if hasattr(method, &#34;_run_at_init&#34;):
+                self._initialization_tasks.append(method)
         if not self._entrypoint:
             raise Exception(&#34;There is no initial state&#34;)
     
@@ -654,7 +730,16 @@ to any state execution.</p>
         assert self._entrypoint
         self._current_state = self._entrypoint
         self._running = True
+        
+
+        if len(self._initialization_tasks) != 0:
+            await asyncio.wait({f(vehicle) for f in self._initialization_tasks})
+        
+        print(&#34;[aerpawlib] Initialization tasks complete. Waiting for safety pilot to arm&#34;)
+        await vehicle._initialize_postarm()
+        
         await self._start_background_tasks(vehicle)
+        
         while self._running:
             if self._current_state not in self._states:
                 print(self._current_state)
@@ -727,6 +812,7 @@ at the end of a state's execution.</p></div>
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="">
+<li><code><a title="aerpawlib.runner.at_init" href="#aerpawlib.runner.at_init">at_init</a></code></li>
 <li><code><a title="aerpawlib.runner.background" href="#aerpawlib.runner.background">background</a></code></li>
 <li><code><a title="aerpawlib.runner.entrypoint" href="#aerpawlib.runner.entrypoint">entrypoint</a></code></li>
 <li><code><a title="aerpawlib.runner.state" href="#aerpawlib.runner.state">state</a></code></li>
@@ -758,7 +844,7 @@ at the end of a state's execution.</p></div>
 </nav>
 </main>
 <footer id="footer">
-<p>Generated by <a href="https://pdoc3.github.io/pdoc"><cite>pdoc</cite> 0.9.2</a>.</p>
+<p>Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.</p>
 </footer>
 </body>
 </html>

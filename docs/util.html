@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
-<meta name="generator" content="pdoc 0.9.2" />
+<meta name="generator" content="pdoc 0.10.0" />
 <title>aerpawlib.util API documentation</title>
 <meta name="description" content="Types and functions commonly used throughout the aerpawlib framework." />
 <link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
@@ -55,6 +55,56 @@ class VectorNED:
         self.east = east
         self.down = down
 
+    def rotate_by_angle(self, angle: float):
+        &#34;&#34;&#34;
+        Transform this VectorNED and rotate it by a certain angle, provided in
+        degrees.
+
+        ex: VectorNED(1, 0, 0).rotate_by_angle(90) -&gt; VectorNed(0, -1, 0)
+        ex: VectorNED(1, 0, 0).rotate_by_angle(45) -&gt; VectorNed(0.707, -0.707, 0)
+        &#34;&#34;&#34;
+        rads = angle / 180 * math.pi
+        
+        east = self.east * math.cos(rads) - self.north * math.sin(rads)
+        north = self.east * math.sin(rads) + self.north * math.cos(rads)
+        
+        return VectorNED(north, east, self.down)
+
+    def cross_product(self, o):
+        &#34;&#34;&#34;
+        find the cross product of this and the other vector (this x o)
+        &#34;&#34;&#34;
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(
+                self.east * o.down + self.down * o.east,
+                self.down * o.north - self.north * o.down,
+                self.north * o.east - self.east * o.north
+                )
+
+    def hypot(self, ignore_down: bool=False):
+        &#34;&#34;&#34;
+        find the distance of this VectorNED, optionally ignoring any changes in
+        height
+        &#34;&#34;&#34;
+        if ignore_down:
+            return math.hypot(self.north, self.east)
+        else:
+            return math.hypot(self.north, self.east, self.down)
+
+    def __add__(self, o):
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(self.north + o.north,
+                self.east + o.east,
+                self.down + o.down)
+
+    def __sub__(self, o):
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(self.north - o.north,
+                self.east - o.east,
+                self.down - o.down)
 class Coordinate:
     &#34;&#34;&#34;
     An absolute point in space making use of lat, lon, and an altitude (over
@@ -200,6 +250,9 @@ def read_from_plan(path: str) -&gt; List[Waypoint]:
     QGroundControl. `.plan` internally stores the data as a JSON object, so it
     would be trivial to roll your own generator if needed, but with no
     assertion that this helper would work.
+
+    Use read_from_plan_complete to get a much more generic object containing
+    more functionality for each waypoint (ex: speed or time to hold)
     &#34;&#34;&#34;
     waypoints = []
     with open(path) as f:
@@ -208,12 +261,11 @@ def read_from_plan(path: str) -&gt; List[Waypoint]:
         raise Exception(&#34;Wrong file type -- use a .plan file.&#34;)
     for item in data[&#34;mission&#34;][&#34;items&#34;]:
         command = item[&#34;command&#34;]
+        if command not in [22, 16, 20]:
+            continue
         x, y, z = item[&#34;params&#34;][4:7]
         waypoint_id = item[&#34;doJumpId&#34;]
         waypoints.append((command, x, y, z, waypoint_id))
-    x_home, y_home = data[&#34;mission&#34;][&#34;plannedHomePosition&#34;][0:2]
-    z_home = waypoints[0][3]
-    waypoints.append((16, x_home, y_home, z_home, len(waypoints)+1))
     return waypoints
 
 def get_location_from_waypoint(waypoint: Waypoint) -&gt; dronekit.LocationGlobalRelative:
@@ -222,7 +274,35 @@ def get_location_from_waypoint(waypoint: Waypoint) -&gt; dronekit.LocationGlobal
 
     TODO convert/deprecate
     &#34;&#34;&#34;
-    return dronekit.LocationGlobalRelative(*waypoint[1:4])</code></pre>
+    return dronekit.LocationGlobalRelative(*waypoint[1:4])
+
+def read_from_plan_complete(path: str):
+    &#34;&#34;&#34;
+    Helper to read from a .plan file and gather all fields from each waypoint
+
+    This can then be used for more advanced .plan file based missions
+    
+    Returned data schema subject to change
+    &#34;&#34;&#34;
+    waypoints = []
+    with open(path) as f:
+        data = json.load(f)
+    if data[&#34;fileType&#34;] != &#34;Plan&#34;:
+        raise Exception(&#34;Wrong file type -- use a .plan file.&#34;)
+    for item in data[&#34;mission&#34;][&#34;items&#34;]:
+        command = item[&#34;command&#34;]
+        if command not in [22, 16, 20]:
+            continue
+        x, y, z = item[&#34;params&#34;][4:7]
+        waypoint_id = item[&#34;doJumpId&#34;]
+        delay = item[&#34;params&#34;][0]
+        waypoints.append({
+            &#34;id&#34;: waypoint_id,
+            &#34;command&#34;: command,
+            &#34;pos&#34;: [x, y, z],
+            &#34;wait_for&#34;: delay,
+            })
+    return waypoints</code></pre>
 </details>
 </section>
 <section>
@@ -262,7 +342,9 @@ list of <code>Waypoint</code>s that can then be used to run waypoint-based missi
 <p>This function has really only been tested with <code>.plan</code> files generated by
 QGroundControl. <code>.plan</code> internally stores the data as a JSON object, so it
 would be trivial to roll your own generator if needed, but with no
-assertion that this helper would work.</p></div>
+assertion that this helper would work.</p>
+<p>Use read_from_plan_complete to get a much more generic object containing
+more functionality for each waypoint (ex: speed or time to hold)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -279,6 +361,9 @@ assertion that this helper would work.</p></div>
     QGroundControl. `.plan` internally stores the data as a JSON object, so it
     would be trivial to roll your own generator if needed, but with no
     assertion that this helper would work.
+
+    Use read_from_plan_complete to get a much more generic object containing
+    more functionality for each waypoint (ex: speed or time to hold)
     &#34;&#34;&#34;
     waypoints = []
     with open(path) as f:
@@ -287,12 +372,51 @@ assertion that this helper would work.</p></div>
         raise Exception(&#34;Wrong file type -- use a .plan file.&#34;)
     for item in data[&#34;mission&#34;][&#34;items&#34;]:
         command = item[&#34;command&#34;]
+        if command not in [22, 16, 20]:
+            continue
         x, y, z = item[&#34;params&#34;][4:7]
         waypoint_id = item[&#34;doJumpId&#34;]
         waypoints.append((command, x, y, z, waypoint_id))
-    x_home, y_home = data[&#34;mission&#34;][&#34;plannedHomePosition&#34;][0:2]
-    z_home = waypoints[0][3]
-    waypoints.append((16, x_home, y_home, z_home, len(waypoints)+1))
+    return waypoints</code></pre>
+</details>
+</dd>
+<dt id="aerpawlib.util.read_from_plan_complete"><code class="name flex">
+<span>def <span class="ident">read_from_plan_complete</span></span>(<span>path: str)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Helper to read from a .plan file and gather all fields from each waypoint</p>
+<p>This can then be used for more advanced .plan file based missions</p>
+<p>Returned data schema subject to change</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def read_from_plan_complete(path: str):
+    &#34;&#34;&#34;
+    Helper to read from a .plan file and gather all fields from each waypoint
+
+    This can then be used for more advanced .plan file based missions
+    
+    Returned data schema subject to change
+    &#34;&#34;&#34;
+    waypoints = []
+    with open(path) as f:
+        data = json.load(f)
+    if data[&#34;fileType&#34;] != &#34;Plan&#34;:
+        raise Exception(&#34;Wrong file type -- use a .plan file.&#34;)
+    for item in data[&#34;mission&#34;][&#34;items&#34;]:
+        command = item[&#34;command&#34;]
+        if command not in [22, 16, 20]:
+            continue
+        x, y, z = item[&#34;params&#34;][4:7]
+        waypoint_id = item[&#34;doJumpId&#34;]
+        delay = item[&#34;params&#34;][0]
+        waypoints.append({
+            &#34;id&#34;: waypoint_id,
+            &#34;command&#34;: command,
+            &#34;pos&#34;: [x, y, z],
+            &#34;wait_for&#34;: delay,
+            })
     return waypoints</code></pre>
 </details>
 </dd>
@@ -612,7 +736,58 @@ some point in the future. There are plans on their GH page, at least.</p></div>
     def __init__(self, north: float, east: float, down: float=0):
         self.north = north
         self.east = east
-        self.down = down</code></pre>
+        self.down = down
+
+    def rotate_by_angle(self, angle: float):
+        &#34;&#34;&#34;
+        Transform this VectorNED and rotate it by a certain angle, provided in
+        degrees.
+
+        ex: VectorNED(1, 0, 0).rotate_by_angle(90) -&gt; VectorNed(0, -1, 0)
+        ex: VectorNED(1, 0, 0).rotate_by_angle(45) -&gt; VectorNed(0.707, -0.707, 0)
+        &#34;&#34;&#34;
+        rads = angle / 180 * math.pi
+        
+        east = self.east * math.cos(rads) - self.north * math.sin(rads)
+        north = self.east * math.sin(rads) + self.north * math.cos(rads)
+        
+        return VectorNED(north, east, self.down)
+
+    def cross_product(self, o):
+        &#34;&#34;&#34;
+        find the cross product of this and the other vector (this x o)
+        &#34;&#34;&#34;
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(
+                self.east * o.down + self.down * o.east,
+                self.down * o.north - self.north * o.down,
+                self.north * o.east - self.east * o.north
+                )
+
+    def hypot(self, ignore_down: bool=False):
+        &#34;&#34;&#34;
+        find the distance of this VectorNED, optionally ignoring any changes in
+        height
+        &#34;&#34;&#34;
+        if ignore_down:
+            return math.hypot(self.north, self.east)
+        else:
+            return math.hypot(self.north, self.east, self.down)
+
+    def __add__(self, o):
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(self.north + o.north,
+                self.east + o.east,
+                self.down + o.down)
+
+    def __sub__(self, o):
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(self.north - o.north,
+                self.east - o.east,
+                self.down - o.down)</code></pre>
 </details>
 <h3>Class variables</h3>
 <dl>
@@ -627,6 +802,80 @@ some point in the future. There are plans on their GH page, at least.</p></div>
 <dt id="aerpawlib.util.VectorNED.north"><code class="name">var <span class="ident">north</span> : float</code></dt>
 <dd>
 <div class="desc"></div>
+</dd>
+</dl>
+<h3>Methods</h3>
+<dl>
+<dt id="aerpawlib.util.VectorNED.cross_product"><code class="name flex">
+<span>def <span class="ident">cross_product</span></span>(<span>self, o)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>find the cross product of this and the other vector (this x o)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def cross_product(self, o):
+    &#34;&#34;&#34;
+    find the cross product of this and the other vector (this x o)
+    &#34;&#34;&#34;
+    if not isinstance(o, VectorNED):
+        raise TypeError()
+    return VectorNED(
+            self.east * o.down + self.down * o.east,
+            self.down * o.north - self.north * o.down,
+            self.north * o.east - self.east * o.north
+            )</code></pre>
+</details>
+</dd>
+<dt id="aerpawlib.util.VectorNED.hypot"><code class="name flex">
+<span>def <span class="ident">hypot</span></span>(<span>self, ignore_down: bool = False)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>find the distance of this VectorNED, optionally ignoring any changes in
+height</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def hypot(self, ignore_down: bool=False):
+    &#34;&#34;&#34;
+    find the distance of this VectorNED, optionally ignoring any changes in
+    height
+    &#34;&#34;&#34;
+    if ignore_down:
+        return math.hypot(self.north, self.east)
+    else:
+        return math.hypot(self.north, self.east, self.down)</code></pre>
+</details>
+</dd>
+<dt id="aerpawlib.util.VectorNED.rotate_by_angle"><code class="name flex">
+<span>def <span class="ident">rotate_by_angle</span></span>(<span>self, angle: float)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Transform this VectorNED and rotate it by a certain angle, provided in
+degrees.</p>
+<p>ex: VectorNED(1, 0, 0).rotate_by_angle(90) -&gt; VectorNed(0, -1, 0)
+ex: VectorNED(1, 0, 0).rotate_by_angle(45) -&gt; VectorNed(0.707, -0.707, 0)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def rotate_by_angle(self, angle: float):
+    &#34;&#34;&#34;
+    Transform this VectorNED and rotate it by a certain angle, provided in
+    degrees.
+
+    ex: VectorNED(1, 0, 0).rotate_by_angle(90) -&gt; VectorNed(0, -1, 0)
+    ex: VectorNED(1, 0, 0).rotate_by_angle(45) -&gt; VectorNed(0.707, -0.707, 0)
+    &#34;&#34;&#34;
+    rads = angle / 180 * math.pi
+    
+    east = self.east * math.cos(rads) - self.north * math.sin(rads)
+    north = self.east * math.sin(rads) + self.north * math.cos(rads)
+    
+    return VectorNED(north, east, self.down)</code></pre>
+</details>
 </dd>
 </dl>
 </dd>
@@ -648,6 +897,7 @@ some point in the future. There are plans on their GH page, at least.</p></div>
 <ul class="">
 <li><code><a title="aerpawlib.util.get_location_from_waypoint" href="#aerpawlib.util.get_location_from_waypoint">get_location_from_waypoint</a></code></li>
 <li><code><a title="aerpawlib.util.read_from_plan" href="#aerpawlib.util.read_from_plan">read_from_plan</a></code></li>
+<li><code><a title="aerpawlib.util.read_from_plan_complete" href="#aerpawlib.util.read_from_plan_complete">read_from_plan_complete</a></code></li>
 </ul>
 </li>
 <li><h3><a href="#header-classes">Classes</a></h3>
@@ -666,10 +916,13 @@ some point in the future. There are plans on their GH page, at least.</p></div>
 </li>
 <li>
 <h4><code><a title="aerpawlib.util.VectorNED" href="#aerpawlib.util.VectorNED">VectorNED</a></code></h4>
-<ul class="">
+<ul class="two-column">
+<li><code><a title="aerpawlib.util.VectorNED.cross_product" href="#aerpawlib.util.VectorNED.cross_product">cross_product</a></code></li>
 <li><code><a title="aerpawlib.util.VectorNED.down" href="#aerpawlib.util.VectorNED.down">down</a></code></li>
 <li><code><a title="aerpawlib.util.VectorNED.east" href="#aerpawlib.util.VectorNED.east">east</a></code></li>
+<li><code><a title="aerpawlib.util.VectorNED.hypot" href="#aerpawlib.util.VectorNED.hypot">hypot</a></code></li>
 <li><code><a title="aerpawlib.util.VectorNED.north" href="#aerpawlib.util.VectorNED.north">north</a></code></li>
+<li><code><a title="aerpawlib.util.VectorNED.rotate_by_angle" href="#aerpawlib.util.VectorNED.rotate_by_angle">rotate_by_angle</a></code></li>
 </ul>
 </li>
 </ul>
@@ -678,7 +931,7 @@ some point in the future. There are plans on their GH page, at least.</p></div>
 </nav>
 </main>
 <footer id="footer">
-<p>Generated by <a href="https://pdoc3.github.io/pdoc"><cite>pdoc</cite> 0.9.2</a>.</p>
+<p>Generated by <a href="https://pdoc3.github.io/pdoc" title="pdoc: Python API documentation generator"><cite>pdoc</cite> 0.10.0</a>.</p>
 </footer>
 </body>
 </html>
