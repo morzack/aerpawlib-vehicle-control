@@ -48,6 +48,7 @@ FLIGHT_ALT = 5          # m
 SQUARE_SIZE = 10        # m
 LOCATION_TOLERANCE = 2  # m -- ~2 is safe in general, use 3 for the rover in SITL
 WAIT_TIME = 5           # s
+LEG_VELOCITY = 3        # m/s
 
 def _dump_to_csv(vehicle: Vehicle, line_num: int, writer):
     pos = vehicle.position
@@ -118,6 +119,7 @@ class SquareOff(StateMachine):
         print("taking off")
         await drone.takeoff(FLIGHT_ALT)
         print("taken off")
+        await drone.set_groundspeed(LEG_VELOCITY)
         return "leg_north"
 
     @timed_state(name="at_position", duration=WAIT_TIME)

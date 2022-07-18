@@ -26,6 +26,56 @@ class VectorNED:
         self.east = east
         self.down = down
 
+    def rotate_by_angle(self, angle: float):
+        """
+        Transform this VectorNED and rotate it by a certain angle, provided in
+        degrees.
+
+        ex: VectorNED(1, 0, 0).rotate_by_angle(90) -> VectorNed(0, -1, 0)
+        ex: VectorNED(1, 0, 0).rotate_by_angle(45) -> VectorNed(0.707, -0.707, 0)
+        """
+        rads = angle / 180 * math.pi
+        
+        east = self.east * math.cos(rads) - self.north * math.sin(rads)
+        north = self.east * math.sin(rads) + self.north * math.cos(rads)
+        
+        return VectorNED(north, east, self.down)
+
+    def cross_product(self, o):
+        """
+        find the cross product of this and the other vector (this x o)
+        """
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(
+                self.east * o.down + self.down * o.east,
+                self.down * o.north - self.north * o.down,
+                self.north * o.east - self.east * o.north
+                )
+
+    def hypot(self, ignore_down: bool=False):
+        """
+        find the distance of this VectorNED, optionally ignoring any changes in
+        height
+        """
+        if ignore_down:
+            return math.hypot(self.north, self.east)
+        else:
+            return math.hypot(self.north, self.east, self.down)
+
+    def __add__(self, o):
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(self.north + o.north,
+                self.east + o.east,
+                self.down + o.down)
+
+    def __sub__(self, o):
+        if not isinstance(o, VectorNED):
+            raise TypeError()
+        return VectorNED(self.north - o.north,
+                self.east - o.east,
+                self.down - o.down)
 class Coordinate:
     """
     An absolute point in space making use of lat, lon, and an altitude (over
@@ -171,6 +221,9 @@ def read_from_plan(path: str) -> List[Waypoint]:
     QGroundControl. `.plan` internally stores the data as a JSON object, so it
     would be trivial to roll your own generator if needed, but with no
     assertion that this helper would work.
+
+    Use read_from_plan_complete to get a much more generic object containing
+    more functionality for each waypoint (ex: speed or time to hold)
     """
     waypoints = []
     with open(path) as f:
@@ -179,12 +232,11 @@ def read_from_plan(path: str) -> List[Waypoint]:
         raise Exception("Wrong file type -- use a .plan file.")
     for item in data["mission"]["items"]:
         command = item["command"]
+        if command not in [22, 16, 20]:
+            continue
         x, y, z = item["params"][4:7]
         waypoint_id = item["doJumpId"]
         waypoints.append((command, x, y, z, waypoint_id))
-    x_home, y_home = data["mission"]["plannedHomePosition"][0:2]
-    z_home = waypoints[0][3]
-    waypoints.append((16, x_home, y_home, z_home, len(waypoints)+1))
     return waypoints
 
 def get_location_from_waypoint(waypoint: Waypoint) -> dronekit.LocationGlobalRelative:
@@ -194,3 +246,31 @@ def get_location_from_waypoint(waypoint: Waypoint) -> dronekit.LocationGlobalRel
     TODO convert/deprecate
     """
     return dronekit.LocationGlobalRelative(*waypoint[1:4])
+
+def read_from_plan_complete(path: str):
+    """
+    Helper to read from a .plan file and gather all fields from each waypoint
+
+    This can then be used for more advanced .plan file based missions
+    
+    Returned data schema subject to change
+    """
+    waypoints = []
+    with open(path) as f:
+        data = json.load(f)
+    if data["fileType"] != "Plan":
+        raise Exception("Wrong file type -- use a .plan file.")
+    for item in data["mission"]["items"]:
+        command = item["command"]
+        if command not in [22, 16, 20]:
+            continue
+        x, y, z = item["params"][4:7]
+        waypoint_id = item["doJumpId"]
+        delay = item["params"][0]
+        waypoints.append({
+            "id": waypoint_id,
+            "command": command,
+            "pos": [x, y, z],
+            "wait_for": delay,
+            })
+    return waypoints

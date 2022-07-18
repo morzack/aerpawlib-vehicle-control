@@ -1,6 +1,3 @@
-# test coordinate logic
-# this is mainly to make sure that the math is correct
-
 from aerpawlib.util import Coordinate, VectorNED
 
 
@@ -30,3 +27,39 @@ def test_coordinate():
     assert round(delta.north) == 100
     assert round(delta.east) == 50
     assert round(delta.down) == -25
+
+
+def test_vectorned():
+    a = VectorNED(1, 0, 0)
+    b = VectorNED(1, -1, 1)
+
+    delta = a + b
+    assert delta.north == 2
+    assert delta.east == -1
+    assert delta.down == 1
+    
+    delta = a - b
+    assert delta.north == 0
+    assert delta.east == 1
+    assert delta.down == -1
+
+    rotated = b.rotate_by_angle(90)
+    assert round(rotated.north, 3) == -1
+    assert round(rotated.east, 3) == -1
+    assert rotated.down == 1
+    
+    rotated = b.rotate_by_angle(180)
+    assert round(rotated.north, 3) == -1
+    assert round(rotated.east, 3) == 1
+    assert rotated.down == 1
+    
+    rotated = b.rotate_by_angle(45)
+    assert round(rotated.north, 3) == 0
+    assert round(rotated.east, 3) == -1.414
+    assert rotated.down == 1
+    
+    rotated = b.rotate_by_angle(-45)
+    assert round(rotated.north, 3) == 1.414
+    assert round(rotated.east, 3) == 0
+    assert rotated.down == 1
+    

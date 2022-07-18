@@ -2,11 +2,6 @@
 concepts needed to write complex scripts that run on the AERPAW platform. This
 lib is intended to be used by both internal developers and researchers.
 
-aerpawlib is an opinionated library -- it has been designed while keeping a
-"best" way of doing things in mind. However, while not encouraged, it's still
-possible to go against some of those design decisions by peeking into some of
-the features hidden within the lib.
-
 aerpawlib has two main design goals:
 
 - Users of this lib must be able to directly translate mission logic into code

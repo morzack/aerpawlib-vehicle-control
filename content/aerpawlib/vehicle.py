@@ -37,13 +37,13 @@ class Vehicle:
     def __init__(self, connection_string: str):
         self._vehicle = dronekit.connect(connection_string, wait_ready=True)
         
-        # TODO this is commented until the filter is made more permissive
-        # or we find an alternative way of getting the autopilot's home location
-        # self._vehicle.commands.download()
-        # self._vehicle.commands.wait_ready() # we need to do this to capture
-        #                                     # things such as the home location
+        self._vehicle.commands.download()
+        self._vehicle.commands.wait_ready() # we need to do this to capture
+                                            # things such as the home location
         
         self._has_heartbeat = False
+
+        self._should_postarm_init = True
         
         # register required listeners after connecting
         def _heartbeat_listener(_, __, value):
@@ -172,30 +172,84 @@ class Vehicle:
                                                 # certain that a scipt always arms once
         self._vehicle.armed = value
         while not self._vehicle.armed: await asyncio.sleep(_POLLING_DELAY)
+    
+    def _initialize_prearm(self, should_postarm_init):
+        while not self._vehicle.system_status in ["STANDBY", "ACTIVE"]: time.sleep(_POLLING_DELAY)
+        self._should_postarm_init = should_postarm_init
 
-    def _initialize(self):
+    async def _initialize_postarm(self):
         """
         Generic pre-mission manipulation of the vehicle into a state that is
         acceptable. MUST be called before anything else. Though this is done by
         the runner.
         """
-        while not self.armed: time.sleep(_POLLING_DELAY)
+        if not self._should_postarm_init:
+            return
+
+        while not self._vehicle.is_armable: await asyncio.sleep(_POLLING_DELAY)
+        while not self.armed: await asyncio.sleep(_POLLING_DELAY)
 
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")
         self._abortable = True
         self._home_location = self.position
     
-    async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
+    async def goto_coordinates(self,
+            coordinates: util.Coordinate,
+            tolerance: float=2,
+            target_heading: float=None):
         """
         Make the vehicle go to provided coordinates.
 
         `tolerance` is the min distance away from the coordinates, in meters,
         that is acceptable.
 
+        `target_heading`, when set, will make the drone point in the specified
+        direction (absolute). Otherwise the drone will remain pointing in the
+        current direction. This is only available on drones.
+
         This method is only available for vehicles built off the `Vehicle` type
         (ex: `Drone` or `Rover`)
         """
         raise Exception("Generic vehicles can't go to coordinates!")
+
+    async def set_velocity(self,
+            velocity_vector: util.VectorNED,
+            global_relative: bool=True,
+            duration: float=None):
+        """
+        Set a drone's velocity that it will use for `duration` seconds.
+
+        The velocity vector provided will be inerpreted as being global
+        relative *in direction* unless the `global_relative` parameter is set
+        to False.
+
+        The vehicle will maintain this velocity for `duration` seconds, if
+        `duration` is provided, otherwise it will automatically maintain the
+        specified velocity until another command is sent.
+        """
+        raise Exception("set_velocity not implemented")
+
+    async def set_groundspeed(self, velocity: float):
+        """
+        Set a vehicle's cruise velocity as used by the autopilot when performing
+        guided movement operations (ex: goto_coordinates). In m/s.
+
+        NOTE:
+            This is not always respected by the autopilot and will not succeed
+            on rover type vehicles in simulation.
+        """
+        self._vehicle.groundspeed = velocity
+    
+    async def _stop(self):
+        """
+        Internal utility to stop any movement being run in the background. This
+        ignores await_ready_to_move(). Requires set_velocity to be implemented
+        for the given vehicle.
+
+        TODO needs testing. setting velocity to 0\bar may not be best way to
+        stop
+        """
+        self._ready_to_move = lambda _: True
 
 class Drone(Vehicle):
     """
@@ -208,7 +262,7 @@ class Drone(Vehicle):
         Set the heading of the vehicle (in absolute deg).
         
         To turn a relative # of degrees, you can do something like
-        `set_heading(drone.pos + x)`
+        `drone.set_heading(drone.heading + x)`
 
         NOTE that this function still needs to be tested kind of extensively.
         Ardupilot has a few internal states that control the heading, and when
@@ -226,7 +280,7 @@ class Drone(Vehicle):
         # observed in SITL. could be wrong, and it's kind of magic undocumnted stuff.
         # doing more research.
         msg = self._vehicle.message_factory.command_long_encode(
-            1, 250,                                     # target system, component
+            0, 0,                                       # target system, component
             mavutil.mavlink.MAV_CMD_CONDITION_YAW,      # command
             0,                                          # confirmation
             heading,                                    # yaw angle in deg
@@ -271,6 +325,7 @@ class Drone(Vehicle):
         self._ready_to_move = taken_off
 
         while not taken_off(self): await asyncio.sleep(_POLLING_DELAY)
+        await asyncio.sleep(5)
 
     async def land(self):
         """
@@ -286,8 +341,15 @@ class Drone(Vehicle):
         self._ready_to_move = lambda _: False
         while self.armed: await asyncio.sleep(_POLLING_DELAY)
 
-    async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
+    async def goto_coordinates(self,
+            coordinates: util.Coordinate,
+            tolerance: float=2,
+            target_heading: float=None):
+        if target_heading != None:
+            await self.set_heading(target_heading)
+        
         await self.await_ready_to_move()
+        await self._stop()
         self._vehicle.simple_goto(coordinates.location())
         
         # TODO in the future we likely want to split alt into a different tolerance
@@ -297,15 +359,63 @@ class Drone(Vehicle):
 
         while not at_coords(self): await asyncio.sleep(_POLLING_DELAY)
 
+    _velocity_loop_active: bool=False
+
+    async def set_velocity(self,
+            velocity_vector: util.VectorNED,
+            global_relative: bool=True,
+            duration: float=None):
+        await self.await_ready_to_move()
+        
+        self._velocity_loop_active = False # TODO race condition bleh
+        await asyncio.sleep(_POLLING_DELAY)
+        
+        if not global_relative:
+            velocity_vector = velocity_vector.rotate_by_angle(-self.heading)
+
+        msg = self._vehicle.message_factory.set_position_target_global_int_encode(
+                0, 0, 0,                # unused, target sys, component
+                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                0b0000111111000111,     # bitmask to only set speed
+                0, 0, 0,                # unused
+                velocity_vector.north,
+                velocity_vector.east,
+                velocity_vector.down,
+                0, 0, 0,                # (unsupported) accel
+                0, 0                    # yaw/rate
+                )
+        
+        self._ready_to_move = lambda _: True
+        target_end = time.time() + duration if duration is not None else None
+        
+        async def _velocity_helper():
+            while self._velocity_loop_active:
+                if target_end is not None and time.time() > target_end:
+                    self._velocity_loop_active = False
+                self._vehicle.send_mavlink(msg)
+                await asyncio.sleep(0.1)        # TODO tune for better perf
+        self._velocity_loop_active = True
+        asyncio.ensure_future(_velocity_helper())
+
+    async def _stop(self):
+        await super()._stop()
+        await self.set_velocity(util.VectorNED(0, 0, 0))
+        self._velocity_loop_active = False
+
 class Rover(Vehicle):
     """
     Rover vehicle type. Implements all functionality that AERPAW's rovers
     expose to user scripts, which includes basic movement control (going to
     coords).
+
+    `target_heading` is ignored for rovers, as they can't strafe.
     """
-    async def goto_coordinates(self, coordinates: util.Coordinate, tolerance: float=2):
+    async def goto_coordinates(self,
+            coordinates: util.Coordinate,
+            tolerance: float=2,
+            target_heading: float=None):
         await self.await_ready_to_move()
-        self._vehicle.simple_goto(util.Coordinate(coordinates.lat, coordinates.lon, 0))
+        self._vehicle.simple_goto(util.Coordinate(coordinates.lat, coordinates.lon, 0).location())
         
         at_coords = lambda self: \
             coordinates.ground_distance(self.position) <= tolerance
@@ -313,6 +423,6 @@ class Rover(Vehicle):
 
         while not at_coords(self): await asyncio.sleep(_POLLING_DELAY)
 
-# TODO break this down further:
+# TODO break this down further?:
 # class LAM(Drone)
 # class SAM(Drone)
