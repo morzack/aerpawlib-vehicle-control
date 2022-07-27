@@ -18,6 +18,11 @@ import asyncio
 import importlib
 import inspect
 
+async def _rtl_cleanup(vehicle: Vehicle):
+    await vehicle.goto_coordinates(vehicle._home_location)
+    if vehicle_type in [Drone]:
+        await vehicle.land()
+
 if __name__ == "__main__":
     from argparse import ArgumentParser
 
@@ -87,9 +92,7 @@ if __name__ == "__main__":
     # rtl / land if not already done
     if vehicle_type in [Drone, Rover] and vehicle.armed:
         print("[aerpawlib] Vehicle still armed after experiment! RTLing and LANDing automatically.")
-        vehicle.goto_coordinates(vehicle._home_location)
-        if vehicle_type in [Drone]:
-            vehicle.land()
-    
+        asyncio.run(_rtl_cleanup(vehicle))
+
     # clean up
     vehicle.close()

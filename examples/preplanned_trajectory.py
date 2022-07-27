@@ -36,7 +36,7 @@ from typing import List, TextIO
 from aerpawlib.external import ExternalProcess
 from aerpawlib.runner import StateMachine, state, background, in_background, timed_state, at_init, sleep
 from aerpawlib.util import Coordinate, Waypoint, read_from_plan_complete
-from aerpawlib.vehicle import Drone
+from aerpawlib.vehicle import Drone, Rover, Vehicle
 
 DEFAULT_HEADING = 0 # 0 is north, set to None to enable yawing as it flies
 
@@ -94,13 +94,13 @@ class PreplannedTrajectory(StateMachine):
         return avg_latency
 
     @at_init
-    async def ping_before_running(self, drone: Drone):
+    async def ping_before_running(self, _):
         # do a few pings before waiting for the drone to arm
         if self._pinging:
             avg_ping_latency = await self._ping_latency("127.0.0.1", 5) # ping 127.0.0.1 5 times
             print(f"Average ping latency: {avg_ping_latency}ms")
 
-    def _dump_to_csv(self, vehicle: Drone, line_num: int, writer):
+    def _dump_to_csv(self, vehicle: Vehicle, line_num: int, writer):
         """
         This function will continually log stats about the vehicle to a file specified by command line args
         """
@@ -116,7 +116,7 @@ class PreplannedTrajectory(StateMachine):
         writer.writerow([line_num, lon, lat, alt, volt, blevel, timestamp, fix, num_sat])
     
     @background
-    async def periodic_dump(self, vehicle: Drone):
+    async def periodic_dump(self, vehicle: Vehicle):
         await sleep(self._sampling_delay)
         if not self._sampling:
             return
@@ -128,15 +128,16 @@ class PreplannedTrajectory(StateMachine):
             self._log_file.close()
 
     @state(name="take_off", first=True)
-    async def take_off(self, drone: Drone):
+    async def take_off(self, vehicle: Vehicle):
         # take off to the alt of the first waypoint
-        takeoff_alt = self._waypoints[self._current_waypoint]["pos"][2]
-        print(f"Taking off to {takeoff_alt}m")
-        await drone.takeoff(takeoff_alt)
+        if isinstance(vehicle, Drone):
+            takeoff_alt = self._waypoints[self._current_waypoint]["pos"][2]
+            print(f"Taking off to {takeoff_alt}m")
+            await vehicle.takeoff(takeoff_alt)
         return "next_waypoint"
 
     @state(name="next_waypoint")
-    async def next_waypoint(self, drone: Drone):
+    async def next_waypoint(self, vehicle: Vehicle):
         # figure out the next waypoint to go to
         self._current_waypoint += 1
         if self._current_waypoint >= len(self._waypoints):
@@ -149,20 +150,20 @@ class PreplannedTrajectory(StateMachine):
         # go to next waypoint
         coords = Coordinate(*waypoint["pos"])
         target_speed = waypoint["speed"]
-        await drone.set_groundspeed(target_speed)
-        in_background(drone.goto_coordinates(coords, target_heading=DEFAULT_HEADING))
+        await vehicle.set_groundspeed(target_speed)
+        in_background(vehicle.goto_coordinates(coords, target_heading=DEFAULT_HEADING))
         return "in_transit"
 
     @state(name="in_transit")
-    async def in_transit(self, drone: Drone):
-        # wait for the drone to arrive at the next waypoint and then transition
+    async def in_transit(self, vehicle: Vehicle):
+        # wait for the vehicle to arrive at the next waypoint and then transition
 
         # also as an example, measure ping latency while on the move
         if self._pinging:
             avg_ping_latency = await self._ping_latency("127.0.0.1", 5) # ping 127.0.0.1 5 times
             print(f"Average ping latency: {avg_ping_latency}ms")
 
-        await drone.await_ready_to_move()
+        await vehicle.await_ready_to_move()
         return "at_waypoint"
 
     @timed_state(name="at_waypoint", duration=3)
@@ -184,10 +185,11 @@ class PreplannedTrajectory(StateMachine):
         return "next_waypoint"
 
     @state(name="rtl")
-    async def rtl(self, drone: Drone):
+    async def rtl(self, vehicle: Vehicle):
         # return to the take off location and stop the script
         home_coords = Coordinate(
-                drone.home_coords.lat, drone.home_coords.lon, drone.position.alt)
-        await drone.goto_coordinates(home_coords, target_heading=DEFAULT_HEADING)
-        await drone.land()
+                vehicle.home_coords.lat, vehicle.home_coords.lon, vehicle.position.alt)
+        await vehicle.goto_coordinates(home_coords, target_heading=DEFAULT_HEADING)
+        if isinstance(vehicle, Drone):
+            await vehicle.land()
         print("done!")
