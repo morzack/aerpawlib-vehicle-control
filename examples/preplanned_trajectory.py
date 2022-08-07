@@ -42,6 +42,7 @@ DEFAULT_HEADING = 0 # 0 is north, set to None to enable yawing as it flies
 
 class PreplannedTrajectory(StateMachine):
     _waypoints = []
+    _waypoint_fname: str
     _current_waypoint: int=0
 
     _next_sample: float=0
@@ -61,10 +62,10 @@ class PreplannedTrajectory(StateMachine):
         parser.add_argument("--output", help="log output file", required=False, default=default_file)
         parser.add_argument("--samplerate", help="log sampling rate (Hz)", required=False, default=1)
         args = parser.parse_args(args=extra_args)
-        self._waypoints = read_from_plan_complete(args.file)
         self._pinging = not args.ping
         self._sampling = args.skipoutput
         self._sampling_delay = 1 / args.samplerate
+        self._waypoint_fname = args.file
         
         if self._sampling:
             self._log_file = open(args.output, 'w+')
@@ -130,6 +131,7 @@ class PreplannedTrajectory(StateMachine):
     @state(name="take_off", first=True)
     async def take_off(self, vehicle: Vehicle):
         # take off to the alt of the first waypoint
+        self._waypoints = read_from_plan_complete(self._waypoint_fname, 5 if isinstance(vehicle, Drone) else 1)
         if isinstance(vehicle, Drone):
             takeoff_alt = self._waypoints[self._current_waypoint]["pos"][2]
             print(f"Taking off to {takeoff_alt}m")

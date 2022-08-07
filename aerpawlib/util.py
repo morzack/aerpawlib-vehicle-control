@@ -216,7 +216,7 @@ _PLAN_CMD_WAYPOINT  = 16
 _PLAN_CMD_RTL       = 20
 _PLAN_CMD_SPEED     = 178
 
-def read_from_plan(path: str) -> List[Waypoint]:
+def read_from_plan(path: str, default_speed: float=_DEFAULT_WAYPOINT_SPEED) -> List[Waypoint]:
     """
     Helper function to read a provided .plan file (passed in as `path`) into a
     list of `Waypoint`s that can then be used to run waypoint-based missions.
@@ -237,7 +237,7 @@ def read_from_plan(path: str) -> List[Waypoint]:
         data = json.load(f)
     if data["fileType"] != "Plan":
         raise Exception("Wrong file type -- use a .plan file.")
-    current_speed = _DEFAULT_WAYPOINT_SPEED
+    current_speed = default_speed
     for item in data["mission"]["items"]:
         command = item["command"]
         if command in [_PLAN_CMD_TAKEOFF, _PLAN_CMD_WAYPOINT, _PLAN_CMD_RTL]:
@@ -256,7 +256,7 @@ def get_location_from_waypoint(waypoint: Waypoint) -> dronekit.LocationGlobalRel
     """
     return dronekit.LocationGlobalRelative(*waypoint[1:4])
 
-def read_from_plan_complete(path: str):
+def read_from_plan_complete(path: str, default_speed: float=_DEFAULT_WAYPOINT_SPEED):
     """
     Helper to read from a .plan file and gather all fields from each waypoint
 
@@ -269,7 +269,7 @@ def read_from_plan_complete(path: str):
         data = json.load(f)
     if data["fileType"] != "Plan":
         raise Exception("Wrong file type -- use a .plan file.")
-    current_speed = _DEFAULT_WAYPOINT_SPEED
+    current_speed = default_speed
     for item in data["mission"]["items"]:
         command = item["command"]
         if command in [_PLAN_CMD_SPEED]:
