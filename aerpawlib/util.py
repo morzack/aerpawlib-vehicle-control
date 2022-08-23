@@ -152,7 +152,7 @@ class Coordinate:
         d = 6367 * c
         return math.hypot(d * 1000, other.alt - self.alt)
 
-    def bearing(self, other) -> float:
+    def bearing(self, other, wrap_360: bool=True) -> float:
         """
         Calculate the bearing (angle) between two `Coordinates`, and return it
         in degrees
@@ -163,7 +163,9 @@ class Coordinate:
         d_lat = other.lat - self.lat
         d_lon = other.lon - self.lon
         bearing = 90 + math.atan2(-d_lat, d_lon) * 57.2957795
-        return bearing % 360
+        if wrap_360:
+            bearing %= 360
+        return bearing
 
     def __add__(self, o):
         north = 0
