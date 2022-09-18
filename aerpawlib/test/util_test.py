@@ -63,3 +63,20 @@ def test_vectorned():
     assert round(rotated.east, 3) == 0
     assert rotated.down == 1
     
+    a = VectorNED(3, 0, 0)
+    a = a.norm()
+    assert(round(a.north, 3)) == 1
+    
+    a = VectorNED(0, -3, 0)
+    a = a.norm()
+    assert(round(a.east, 3)) == -1
+    
+    a = VectorNED(1, 1, 0)
+    a = a.norm()
+    assert(round(a.north, 3)) == 0.707
+    assert(round(a.east, 3)) == 0.707
+    
+    a = VectorNED(1, 1, 0)
+    a = a * 2
+    assert(round(a.north, 3)) == 2
+    assert(round(a.east, 3)) == 2

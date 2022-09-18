@@ -61,7 +61,19 @@ class VectorNED:
         if ignore_down:
             return math.hypot(self.north, self.east)
         else:
-            return math.hypot(self.north, self.east, self.down)
+            return math.sqrt(self.north**2 + self.east**2 + self.down**2)
+
+    def norm(self):
+        """
+        returns a normalized version of this vector in 3d space, with a magnitude
+        equal to 1
+        
+        if the zero vector, returns the zero vector
+        """
+        hypot = self.hypot()
+        if hypot == 0:
+            return VectorNED(0, 0, 0)
+        return (1/hypot) * self
 
     def __add__(self, o):
         if not isinstance(o, VectorNED):
@@ -76,6 +88,18 @@ class VectorNED:
         return VectorNED(self.north - o.north,
                 self.east - o.east,
                 self.down - o.down)
+
+    def __mul__(self, o):
+        if not (isinstance(o, float) or isinstance(o, int)):
+            raise TypeError()
+        return VectorNED(self.north * o, self.east * o, self.down * o)
+    
+    __rmul__ = __mul__
+
+    def __str__(self) -> str:
+        return "(" + ",".join(map(str, [self.north, self.east, self.down])) + ")"
+
+
 class Coordinate:
     """
     An absolute point in space making use of lat, lon, and an altitude (over

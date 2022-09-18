@@ -48,7 +48,7 @@ FLIGHT_ALT = 5          # m
 SQUARE_SIZE = 10        # m
 LOCATION_TOLERANCE = 2  # m -- ~2 is safe in general, use 3 for the rover in SITL
 WAIT_TIME = 5           # s
-LEG_VELOCITY = 3        # m/s
+LEG_VELOCITY = 5        # m/s
 
 def _dump_to_csv(vehicle: Vehicle, line_num: int, writer):
     pos = vehicle.position
@@ -59,7 +59,8 @@ def _dump_to_csv(vehicle: Vehicle, line_num: int, writer):
     fix, num_sat = gps.fix_type, gps.satellites_visible
     if fix < 2:
         lat, lon, alt = -999, -999, -999
-    writer.writerow([line_num, lon, lat, alt, volt, timestamp, fix, num_sat])
+    vel = vehicle.velocity
+    writer.writerow([line_num, lon, lat, alt, vel, volt, timestamp, fix, num_sat])
 
 class SquareOff(StateMachine):
     _next_sample: float=0
