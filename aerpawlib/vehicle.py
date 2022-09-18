@@ -68,6 +68,9 @@ class Vehicle:
         self._vehicle.commands.wait_ready() # we need to do this to capture
                                             # things such as the home location
         
+        # this hack is needed to wait for the autopilot to reply with all needed info for the runner
+        while self.autopilot_info.major == None: time.sleep(0.5)
+        
         self._has_heartbeat = False
 
         self._should_postarm_init = True
@@ -142,6 +145,10 @@ class Vehicle:
     @property
     def velocity(self) -> util.VectorNED:
         return util.VectorNED(*self._vehicle.velocity)
+
+    @property
+    def autopilot_info(self) -> dronekit.Version:
+        return self._vehicle.version
     
     # special things
     def done_moving(self) -> bool:
@@ -176,7 +183,7 @@ class Vehicle:
         # the intent of it in the past has been blocking further execution of
         # more vehicle control logic.
         if self._abortable:
-            print("Aborted.")
+            print("[aerpawlib] Aborted.")
             self._abortable = False
             self._aborted = True
 

@@ -91,11 +91,12 @@ if __name__ == "__main__":
             config_constraints = yaml.safe_load(f)
             vehicle._constraints = parse_config(config_constraints)
 
-    # VV add any hooks that we want to the runner below VV
-    
-    # too bad there aren't any (yet) to use as an example
+    if vehicle._constraints.ardupilot_version != None:
+        ap_info = vehicle.autopilot_info
+        if str(ap_info) != vehicle._constraints.ardupilot_version:
+            raise Exception(f"autopilot version does not match constraint file version {ap_info} != {vehicle._constraints.ardupilot_version}")
 
-    # ^^                                                ^^
+    # everything after this point is user script dependent. avoid adding extra logic below here
 
     runner.initialize_args(unknown_args)
     
@@ -105,7 +106,7 @@ if __name__ == "__main__":
     if flag_zmq_runner:
         if None in [args.zmq_identifier, args.zmq_server_addr]:
             raise Exception("you must declare an identifier and server address for a zmq enabled state machine")
-        print("initializing zmq bindings")
+        print("[aerpawlib] initializing zmq bindings")
         runner._initialize_zmq_bindings(args.zmq_identifier, args.zmq_server_addr)
 
     asyncio.run(runner.run(vehicle))

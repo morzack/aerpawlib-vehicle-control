@@ -1,0 +1,6 @@
+velocity:
+  max_velocity: 5 # m/s, max vehicle velocity in guided or when manually setting
+  min_velocity: 0.1 # m/s, min vehicle velocity for guided
+
+firmware:
+  ardupilot_version: "APM:Copter-4.3.0-dev0" # used by runner to ensure vehicle ardupilot version is acceptable
