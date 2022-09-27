@@ -38,12 +38,13 @@ from aerpawlib.runner import StateMachine, state, background, in_background, tim
 from aerpawlib.util import Coordinate, Waypoint, read_from_plan_complete
 from aerpawlib.vehicle import Drone, Rover, Vehicle
 
-DEFAULT_HEADING = 0 # 0 is north, set to None to enable yawing as it flies
-
 class PreplannedTrajectory(StateMachine):
     _waypoints = []
     _waypoint_fname: str
     _current_waypoint: int=0
+
+    _default_leg_speed: float=None
+    _default_heading: float=None
 
     _next_sample: float=0
     _sampling_delay: float
@@ -61,11 +62,21 @@ class PreplannedTrajectory(StateMachine):
         parser.add_argument("--skipoutput", help="don't dump gps data to a file", action="store_false")
         parser.add_argument("--output", help="log output file", required=False, default=default_file)
         parser.add_argument("--samplerate", help="log sampling rate (Hz)", required=False, default=1)
+        parser.add_argument("--default-speed", help="default leg speed for vehicle", required=False,
+            default=None, action="store_const", dest="default_speed")
+        parser.add_argument("--look-at-heading", help="heading to maintain while flying, if set. attitude is autopilot controlled if not set", required=False,
+            default=None, action="store_const", dest="default_heading")
         args = parser.parse_args(args=extra_args)
+        
         self._pinging = not args.ping
         self._sampling = args.skipoutput
         self._sampling_delay = 1 / args.samplerate
         self._waypoint_fname = args.file
+
+        if args.default_speed != None:
+            self._default_leg_speed = args.default_speed
+        if args.default_heading != None:
+            self._default_heading = args.default_heading
         
         if self._sampling:
             self._log_file = open(args.output, 'w+')
@@ -114,7 +125,10 @@ class PreplannedTrajectory(StateMachine):
         fix, num_sat = gps.fix_type, gps.satellites_visible
         if fix < 2:
             lat, lon, alt = -999, -999, -999
-        writer.writerow([line_num, lon, lat, alt, volt, blevel, timestamp, fix, num_sat])
+        vel = vehicle.velocity
+        attitude = vehicle.attitude
+        attitude_str = "(" + ",".join(map(str, [attitude.pitch, attitude.yaw, attitude.roll])) + ")"
+        writer.writerow([line_num, lon, lat, alt, attitude_str, vel, volt, timestamp, fix, num_sat])
     
     @background
     async def periodic_dump(self, vehicle: Vehicle):
@@ -131,7 +145,12 @@ class PreplannedTrajectory(StateMachine):
     @state(name="take_off", first=True)
     async def take_off(self, vehicle: Vehicle):
         # take off to the alt of the first waypoint
-        self._waypoints = read_from_plan_complete(self._waypoint_fname, 5 if isinstance(vehicle, Drone) else 1)
+        
+        default_speed = 5 if isinstance(self.vehicle, Drone) else 1
+        if self._default_leg_speed != None: default_speed = self._default_leg_speed
+
+        self._waypoints = read_from_plan_complete(self._waypoint_fname, default_speed)
+        
         if isinstance(vehicle, Drone):
             takeoff_alt = self._waypoints[self._current_waypoint]["pos"][2]
             print(f"Taking off to {takeoff_alt}m")
@@ -153,7 +172,7 @@ class PreplannedTrajectory(StateMachine):
         coords = Coordinate(*waypoint["pos"])
         target_speed = waypoint["speed"]
         await vehicle.set_groundspeed(target_speed)
-        in_background(vehicle.goto_coordinates(coords, target_heading=DEFAULT_HEADING))
+        in_background(vehicle.goto_coordinates(coords, target_heading=self._default_heading))
         return "in_transit"
 
     @state(name="in_transit")
@@ -191,7 +210,7 @@ class PreplannedTrajectory(StateMachine):
         # return to the take off location and stop the script
         home_coords = Coordinate(
                 vehicle.home_coords.lat, vehicle.home_coords.lon, vehicle.position.alt)
-        await vehicle.goto_coordinates(home_coords, target_heading=DEFAULT_HEADING)
+        await vehicle.goto_coordinates(home_coords, target_heading=self._default_heading)
         if isinstance(vehicle, Drone):
             await vehicle.land()
         print("done!")

@@ -149,6 +149,16 @@ class Vehicle:
     @property
     def autopilot_info(self) -> dronekit.Version:
         return self._vehicle.version
+
+    @property
+    def attitude(self) -> dronekit.Attitude:
+        """
+        attitude of the vehicle, all values in radians
+
+        - pitch/roll are horizon-relative
+        - yaw is world relative (north=0)
+        """
+        return self._vehicle.attitude
     
     # special things
     def done_moving(self) -> bool:

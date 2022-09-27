@@ -60,7 +60,9 @@ def _dump_to_csv(vehicle: Vehicle, line_num: int, writer):
     if fix < 2:
         lat, lon, alt = -999, -999, -999
     vel = vehicle.velocity
-    writer.writerow([line_num, lon, lat, alt, vel, volt, timestamp, fix, num_sat])
+    attitude = vehicle.attitude
+    attitude_str = "(" + ",".join(map(str, [attitude.pitch, attitude.yaw, attitude.roll])) + ")"
+    writer.writerow([line_num, lon, lat, alt, attitude_str, vel, volt, timestamp, fix, num_sat])
 
 class SquareOff(StateMachine):
     _next_sample: float=0
