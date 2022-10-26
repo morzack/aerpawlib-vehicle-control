@@ -15,8 +15,8 @@ def run_zmq_proxy():
     p_sub = zmq_context.socket(zmq.XSUB)
     p_pub = zmq_context.socket(zmq.XPUB)
 
-    p_sub.bind(f"tcp://127.0.0.1:{ZMQ_PROXY_IN_PORT}")
-    p_pub.bind(f"tcp://127.0.0.1:{ZMQ_PROXY_OUT_PORT}")
+    p_sub.bind(f"tcp://*:{ZMQ_PROXY_IN_PORT}")
+    p_pub.bind(f"tcp://*:{ZMQ_PROXY_OUT_PORT}")
 
     print("[aerpawlib] launching zmq proxy")
     zmq.proxy(p_sub, p_pub)
