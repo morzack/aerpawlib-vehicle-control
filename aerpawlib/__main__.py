@@ -94,7 +94,7 @@ if __name__ == "__main__":
             config_constraints = yaml.safe_load(f)
             vehicle._constraints = parse_config(config_constraints)
 
-    if vehicle._constraints.ardupilot_version != None:
+    if vehicle._constraints != None and vehicle._constraints.ardupilot_version != None:
         ap_info = vehicle.autopilot_info
         if str(ap_info) != vehicle._constraints.ardupilot_version:
             raise Exception(f"autopilot version does not match constraint file version {ap_info} != {vehicle._constraints.ardupilot_version}")
