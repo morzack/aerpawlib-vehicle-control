@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document>
+	<name>AERPAW Big Geofence_Fixed.kml</name>
+	<open>1</open>
+	<Style id="sh_ylw-pushpin">
+		<IconStyle>
+			<scale>1.3</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+		<BalloonStyle>
+		</BalloonStyle>
+		<PolyStyle>
+			<color>99ffffaa</color>
+		</PolyStyle>
+	</Style>
+	<StyleMap id="msn_ylw-pushpin">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#sn_ylw-pushpin</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#sh_ylw-pushpin</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Style id="sn_ylw-pushpin">
+		<IconStyle>
+			<scale>1.1</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+		<BalloonStyle>
+		</BalloonStyle>
+		<PolyStyle>
+			<color>99ffffaa</color>
+		</PolyStyle>
+	</Style>
+	<Placemark>
+		<name>AERPAW Big Geofence_Fixed</name>
+		<styleUrl>#msn_ylw-pushpin</styleUrl>
+		<Polygon>
+			<tessellate>1</tessellate>
+			<outerBoundaryIs>
+				<LinearRing>
+					<coordinates>
+						-78.69547205552347,35.72880524177751,0 -78.69655569423412,35.73034893280391,0 -78.69927270421532,35.73042523891949,0 -78.69979359958919,35.73051937796792,0 -78.69996636483191,35.73025504494631,0 -78.70015797188904,35.72963634403818,0 -78.70082244524355,35.72853405324059,0 -78.70036918438045,35.7277702810421,0 -78.70060532618695,35.726676628094,0 -78.70091702638037,35.72643960060359,0 -78.70085337234642,35.72546674963959,0 -78.69987708784484,35.72532232027014,0 -78.69965597848201,35.72367516334129,0 -78.6984075655389,35.72323219047765,0 -78.69682632953729,35.7228707358784,0 -78.69455868649942,35.72299579019525,0 -78.69266389592191,35.72227498046382,0 -78.69154013557741,35.72261704091611,0 -78.6918103947614,35.72495875238774,0 -78.6942162647356,35.72498680577083,0 -78.69460914597411,35.72702451963993,0 -78.69544717810703,35.72710730577389,0 -78.69579545422093,35.72689685266325,0 -78.69602442755915,35.72695324876908,0 -78.69620041234603,35.72718139200785,0 -78.69612885574327,35.72746953931985,0 -78.69547205552347,35.72880524177751,0 
+					</coordinates>
+				</LinearRing>
+			</outerBoundaryIs>
+		</Polygon>
+	</Placemark>
+</Document>
+</kml>
