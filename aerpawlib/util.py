@@ -309,18 +309,13 @@ class GeofenceChecker:
                     )
 
     def validate_waypoint(
-        self, curLon, curLat, nextLon, nextLat, nextAlt
-    ) -> tuple(bool, str):
+        self, curLat, curLon, nextLat, nextLon, nextAlt=0
+    ) -> Tuple[bool, str]:
         """
         Makes sure path from current location to next waypoint stays inside geofence and avoids no-go zones.
         Returns a tuple (bool, str)
         (False, <error message>) if the waypoint violates geofence or no-go zone constraints, else (True, <"">).
         """
-        if nextAlt >= self.max_alt:
-            sys.stderr(
-                "Invalid waypoint. Altitude of %s m is not within restrictions. ABORTING!"
-                % nextAlt
-            )
 
         # Makes sure altitude of next waypoint is within regulations
         if self.vehicle_type == "copter":
@@ -343,7 +338,6 @@ class GeofenceChecker:
                 "Invalid waypoint. Waypoint (%s,%s) is outside of the geofence. ABORTING!"
                 % (nextLat, nextLon)
             )
-
         # Makes sure next waypoint is not in a no-go zone
         for zone in self.exclude_geofences:
             if inside(nextLon, nextLat, zone):

@@ -1,4 +1,4 @@
-from aerpawlib.util import Coordinate, VectorNED
+from aerpawlib.util import Coordinate, GeofenceChecker, VectorNED
 
 
 def test_coordinate():
@@ -80,3 +80,75 @@ def test_vectorned():
     a = a * 2
     assert(round(a.north, 3)) == 2
     assert(round(a.east, 3)) == 2
+
+
+def test_geofence_checker():
+    ###################
+    ### ROVER TESTS ###
+    ###################
+    checker = GeofenceChecker("geofence_config_rover_test.yaml")
+    # valid lat and long
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.72863271013824, -78.69887262268281, 35.72723646570659, -78.69938351360769)
+    assert(valid_waypoint)
+
+    # next lat and long outside geofence
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.72863271013824, -78.69887262268281, 35.72747396210598, -78.70120089855675)
+    assert(not valid_waypoint)
+
+    # next location crosses geofence
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.72550320983546, -78.7005851431933, 35.724562532570005, -78.69970537867525)
+    assert(not valid_waypoint)
+    
+    # same as above but opposite direction
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.724562532570005, -78.69970537867525, 35.72550320983546, -78.7005851431933)
+    assert(not valid_waypoint)
+
+    # next location inside no-go
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.72863271013824, -78.69887262268281, 35.725490953416376, -78.69734105606496, 20)
+    assert(not valid_waypoint)
+
+    # next location requires crossing no-go
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.72863271013824, -78.69887262268281, 35.723229887405175, -78.69547821737531, 20)
+    assert(not valid_waypoint)
+    
+    # same as above but opposite direction
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.723229887405175, -78.69547821737531, 35.72863271013824, -78.69887262268281, 20)
+    assert(not valid_waypoint)
+    
+    ####################
+    ### COPTER TESTS ###
+    ####################
+    checker = GeofenceChecker("geofence_config_copter_test.yaml")
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.72863271013824, -78.69887262268281, 35.728481947918695, -78.69619704938518, 20)
+    assert(valid_waypoint)
+    # valid lat and long but invalid alt
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.72863271013824, -78.69887262268281, 35.728481947918695, -78.69619704938518, 10)
+    assert(not valid_waypoint)
+    # invalid lat and long
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.72863271013824, -78.69887262268281, 35.72747396210598, -78.70120089855675, 20)
+    assert(not valid_waypoint)
+    
+    # next location crosses geofence
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.72550320983546, -78.7005851431933, 35.724562532570005, -78.69970537867525)
+    assert(not valid_waypoint)
+    
+    # same as above but opposite direction
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.724562532570005, -78.69970537867525, 35.72550320983546, -78.7005851431933)
+    assert(not valid_waypoint)
+
+    # next location inside no-go
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.72863271013824, -78.69887262268281, 35.725490953416376, -78.69734105606496, 20)
+    assert(not valid_waypoint)
+
+    # next location requires crossing no-go
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.72863271013824, -78.69887262268281, 35.723229887405175, -78.69547821737531, 20)
+    assert(not valid_waypoint)
+    
+    # same as above but opposite direction
+    (valid_waypoint, error_msg) = checker.validate_waypoint(35.723229887405175, -78.69547821737531, 35.72863271013824, -78.69887262268281, 20)
+    assert(not valid_waypoint)
+
+
+
+if __name__ == "__main__":
+    test_geofence_checker()
