@@ -1,4 +1,4 @@
-from aerpawlib.util import Coordinate, GeofenceChecker, VectorNED
+from aerpawlib.util import Coordinate, SafetyChecker, VectorNED
 
 
 def test_coordinate():
@@ -86,7 +86,7 @@ def test_geofence_checker():
     ###################
     ### ROVER TESTS ###
     ###################
-    checker = GeofenceChecker("geofence_config_rover_test.yaml")
+    checker = SafetyChecker("geofence_config_rover_test.yaml")
     # valid lat and long
     (valid_waypoint, error_msg) = checker.validate_waypoint(35.72863271013824, -78.69887262268281, 35.72723646570659, -78.69938351360769)
     assert(valid_waypoint)
@@ -118,7 +118,7 @@ def test_geofence_checker():
     ####################
     ### COPTER TESTS ###
     ####################
-    checker = GeofenceChecker("geofence_config_copter_test.yaml")
+    checker = SafetyChecker("geofence_config_copter_test.yaml")
     (valid_waypoint, error_msg) = checker.validate_waypoint(35.72863271013824, -78.69887262268281, 35.728481947918695, -78.69619704938518, 20)
     assert(valid_waypoint)
     # valid lat and long but invalid alt

@@ -243,29 +243,20 @@ class Coordinate:
             raise TypeError()
 
 
-class GeofenceChecker:
+class SafetyChecker:
     # valid vehicle types
     VEHICLE_TYPES = ["rover", "copter"]
+    # parameters required for all vehicle types
     REQUIRED_PARAMS = [
         "vehicle_type",
         "max_speed",
+        "min_speed",
         "include_geofences",
         "exclude_geofences",
     ]
+    # parameters required for copters
     REQUIRED_COPTER_PARAMS = ["max_alt", "min_alt"]
-    # Altitude limits for copter
-    MIN_ALT = 20
-    MAX_ALT = 100
-    # Speed limits for copter
-    COPTER_MIN_SPEED = 0.1
-    COPTER_MAX_SPEED = 10
-    # Speed limits for rover
-    ROVER_MIN_SPEED = 0.1
-    ROVER_MAX_SPEED = 3
-    """
-    Geofence vehicle configuration to validate waypoint commands
-    """
-    # TODO should this checker encode the global min and max copter alt
+
     def __init__(self, vehicle_config_filename: str):
         vehicle_config_file = open(vehicle_config_filename, "r")
         config = yaml.safe_load(vehicle_config_file)
@@ -278,6 +269,7 @@ class GeofenceChecker:
         # No go zones to exclude from the geofenced area
         self.exclude_geofences = [readGeofence(geofence) for geofence in config["exclude_geofences"]]
         self.max_speed = config["max_speed"]
+        self.min_speed = config["min_speed"]
 
         # Only max altitude for copters
         if self.vehicle_type == "copter":
@@ -385,6 +377,18 @@ class GeofenceChecker:
                     )
 
         # Next waypoint location is valid
+        return (True, "")
+
+    def validate_speed(self, newSpeed) -> Tuple(bool, str):
+        """
+        Makes sure the provided newSpeed lies within the configured vehicle constraints
+        (False, <error message>) if the speed violates constraints, else (True, <"">).
+        """
+        if newSpeed > self.max_speed:
+            return (False, "Invalid speed (%s) greater than maximum (%s)" % (newSpeed, self.max_speed))
+        if newSpeed < self.min_speed:
+            return (False, "Invalid speed (%s) less than minimum (%s)" % (newSpeed, self.min_speed))
+        # New speed is valid
         return (True, "")
 
 
