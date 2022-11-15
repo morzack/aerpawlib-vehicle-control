@@ -9,6 +9,7 @@ import yaml
 from typing import Dict, List, Tuple
 from pykml import parser
 import dronekit
+from math import sin, cos, sqrt, atan2, radians
 
 
 class VectorNED:
@@ -300,13 +301,13 @@ class SafetyChecker:
                         f"Required copter parameter {param} not found in {vehicle_config_filename}!"
                     )
 
-    def validate_waypoint(
+    def validateWaypointCommand(
         self, curLat, curLon, nextLat, nextLon, nextAlt=0
     ) -> Tuple[bool, str]:
         """
         Makes sure path from current location to next waypoint stays inside geofence and avoids no-go zones.
         Returns a tuple (bool, str)
-        (False, <error message>) if the waypoint violates geofence or no-go zone constraints, else (True, <"">).
+        (False, <error message>) if the waypoint violates geofence or no-go zone constraints, else (True, "").
         """
 
         # Makes sure altitude of next waypoint is within regulations
@@ -379,16 +380,57 @@ class SafetyChecker:
         # Next waypoint location is valid
         return (True, "")
 
-    def validate_speed(self, newSpeed) -> Tuple(bool, str):
+    def validateChangeSpeedCommand(self, newSpeed) -> Tuple(bool, str):
         """
         Makes sure the provided newSpeed lies within the configured vehicle constraints
-        (False, <error message>) if the speed violates constraints, else (True, <"">).
+        Returns (False, <error message>) if the speed violates constraints, else (True, "").
         """
         if newSpeed > self.max_speed:
             return (False, "Invalid speed (%s) greater than maximum (%s)" % (newSpeed, self.max_speed))
         if newSpeed < self.min_speed:
             return (False, "Invalid speed (%s) less than minimum (%s)" % (newSpeed, self.min_speed))
         # New speed is valid
+        return (True, "")
+    
+
+    def validateTakeoffCommand(self, takeoffAlt, currentLat, currentLon):
+        """
+        Makes sure the takeoff altitude lies within the vehicle constraints
+        Returns (False, <error message>) if the altitude violates constraints, else (True, "").
+        """
+        # Makes sure altitude is within regulations
+        if self.vehicle_type == "copter":
+            if takeoffAlt < self.min_alt or takeoffAlt > self.max_alt:
+                return(False, 'Invalid takeoff altitude of %s m.' % takeoffAlt)
+        # Save takeoff location for validating landing
+        self.takeoff_location = Coordinate(currentLat, currentLon, alt=0)
+        # Takeoff command is valid
+        return (True, "")
+
+    def validateLandingCommand(self, currentLat, currentLon):
+        """
+        Ensure the copter is attempting to land within 5 meters of the takeoff location
+        Returns (False, <error message>) if the coper is not within 5 meters, else (True, "").
+        """
+        # # approximate radius of earth in km
+        # R = 6373.0
+        # # Calculate distance between takeoff and landing
+        # lat1 = radians(currentLat)
+        # lon1 = radians(currentLon)
+        # lat2 = radians(self.takeoff_location[0])
+        # lon2 = radians(self.takeoff_location[1])
+        # dlon = lon2 - lon1
+        # dlat = lat2 - lat1
+        # a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+        # c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        # distance = R * c * 1000
+        currentLocation = Coordinate(currentLat, currentLon, alt=0)
+        distance = self.takeoff_location.ground_distance(currentLocation)
+
+        if distance > 5:
+            return(False, 'Invalid landing location. Must be within 5 meters of takeoff location. Attempted landing location (%s,%s) is %f meters from takeoff location.' 
+                % (currentLat, currentLon, distance))
+        # Landing command is valid
         return (True, "")
 
 
