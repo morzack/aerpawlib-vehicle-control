@@ -68,8 +68,8 @@ class Vehicle:
         self._vehicle.commands.wait_ready() # we need to do this to capture
                                             # things such as the home location
         
-        # this hack is needed to wait for the autopilot to reply with all needed info for the runner
-        while self.autopilot_info.major == None: time.sleep(0.5)
+        # # this hack is needed to wait for the autopilot to reply with all needed info for the runner
+        # while self.autopilot_info.major == None: time.sleep(0.5)
         
         self._has_heartbeat = False
 

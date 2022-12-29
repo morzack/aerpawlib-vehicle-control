@@ -63,9 +63,9 @@ class PreplannedTrajectory(StateMachine):
         parser.add_argument("--output", help="log output file", required=False, default=default_file)
         parser.add_argument("--samplerate", help="log sampling rate (Hz)", required=False, default=1)
         parser.add_argument("--default-speed", help="default leg speed for vehicle", required=False,
-            default=None, action="store_const", dest="default_speed")
+            default=None, action="store", dest="default_speed")
         parser.add_argument("--look-at-heading", help="heading to maintain while flying, if set. attitude is autopilot controlled if not set", required=False,
-            default=None, action="store_const", dest="default_heading")
+            default=None, action="store", dest="default_heading")
         args = parser.parse_args(args=extra_args)
         
         self._pinging = not args.ping
@@ -146,7 +146,7 @@ class PreplannedTrajectory(StateMachine):
     async def take_off(self, vehicle: Vehicle):
         # take off to the alt of the first waypoint
         
-        default_speed = 5 if isinstance(self.vehicle, Drone) else 1
+        default_speed = 5 if isinstance(vehicle, Drone) else 1
         if self._default_leg_speed != None: default_speed = self._default_leg_speed
 
         self._waypoints = read_from_plan_complete(self._waypoint_fname, default_speed)
