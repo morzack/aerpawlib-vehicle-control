@@ -284,7 +284,7 @@ class SafetyChecker:
         for param in self.REQUIRED_PARAMS:
             if param not in config:
                 raise Exception(
-                    f"Required parameter {param} not found inn {vehicle_config_filename}!"
+                    f"Required parameter {param} not found in {vehicle_config_filename}!"
                 )
 
         # Ensure the vehicle type is valid
@@ -302,44 +302,44 @@ class SafetyChecker:
                     )
 
     def validateWaypointCommand(
-        self, curLat, curLon, nextLat, nextLon, nextAlt=0
+        self, curLoc: Coordinate, nextLoc: Coordinate
     ) -> Tuple[bool, str]:
         """
         Makes sure path from current location to next waypoint stays inside geofence and avoids no-go zones.
         Returns a tuple (bool, str)
         (False, <error message>) if the waypoint violates geofence or no-go zone constraints, else (True, "").
         """
+        print(f"Validating {nextLoc}")
 
         # Makes sure altitude of next waypoint is within regulations
         if self.vehicle_type == "copter":
-            if nextAlt < self.min_alt or nextAlt > self.max_alt:
+            if nextLoc.alt < self.min_alt or nextLoc.alt > self.max_alt:
                 return (
                     False,
                     "Invalid waypoint. Altitude of %s m is not within restrictions!"
-                    % nextAlt,
+                    % nextLoc.alt,
                 )
 
         # Makes sure next waypoint is inside one of the include geofences
         inside_geofence = False
         for geofence in self.include_geofences:
-            if inside(nextLon, nextLat, geofence):
+            if inside(nextLoc.lon, nextLoc.lat, geofence):
                 inside_geofence = True
                 break
         if inside_geofence == False:
             return (
                 False,
                 "Invalid waypoint. Waypoint (%s,%s) is outside of the geofence. ABORTING!"
-                % (nextLat, nextLon)
+                % (nextLoc.lat, nextLoc.lon)
             )
         # Makes sure next waypoint is not in a no-go zone
         for zone in self.exclude_geofences:
-            if inside(nextLon, nextLat, zone):
+            if inside(nextLoc.lon, nextLoc.lat, zone):
                 return (
                     False,
                     "Invalid waypoint. Waypoint (%s,%s) is inside a no-go zone."
-                    % (nextLat, nextLon)
+                    % (nextLoc.lat, nextLoc.lon)
                 )
-
         # Makes sure path between two points does not leave geofence
         for i in range(len(geofence) - 1):
             if doIntersect(
@@ -347,15 +347,15 @@ class SafetyChecker:
                 geofence[i]["lat"],
                 geofence[i + 1]["lon"],
                 geofence[i + 1]["lat"],
-                curLon,
-                curLat,
-                nextLon,
-                nextLat,
+                curLoc.lon,
+                curLoc.lat,
+                nextLoc.lon,
+                nextLoc.lat,
             ):
                 return (
                     False,
                     "Invalid waypoint. Path from (%s,%s) to waypoint (%s,%s) leaves geofence."
-                    % (curLat, curLon, nextLat, nextLon)
+                    % (curLoc.lat, curLoc.lon, nextLoc.lat, nextLoc.lon)
                 )
 
         # Makes sure path between two points does not enter no-go zone
@@ -366,21 +366,21 @@ class SafetyChecker:
                     zone[i]["lat"],
                     zone[i + 1]["lon"],
                     zone[i + 1]["lat"],
-                    curLon,
-                    curLat,
-                    nextLon,
-                    nextLat,
+                    curLoc.lon,
+                    curLoc.lat,
+                    nextLoc.lon,
+                    nextLoc.lat,
                 ):
                     return (
                         False,
                         "Invalid waypoint. Path from (%s,%s) to waypoint (%s,%s) enters no-go zone."
-                        % (curLat, curLon, nextLat, nextLon)
+                        % (curLoc.lat, curLoc.lon, nextLoc.lat, nextLoc.lon)
                     )
 
         # Next waypoint location is valid
         return (True, "")
 
-    def validateChangeSpeedCommand(self, newSpeed) -> Tuple(bool, str):
+    def validateChangeSpeedCommand(self, newSpeed) -> Tuple[bool, str]:
         """
         Makes sure the provided newSpeed lies within the configured vehicle constraints
         Returns (False, <error message>) if the speed violates constraints, else (True, "").
