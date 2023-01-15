@@ -37,11 +37,14 @@ async def _rtl_cleanup(vehicle: Vehicle):
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
+    import sys
+    
+    proxy_mode = "--run-proxy" in sys.argv
 
     parser = ArgumentParser(description="aerpawlib - wrap and run aerpaw scripts")
-    parser.add_argument("--script", help="experimenter script", required=True)
-    parser.add_argument("--conn", help="connection string", required=True)
-    parser.add_argument("--vehicle", help="vehicle type [generic, drone, rover, none]", required=True)
+    parser.add_argument("--script", help="experimenter script", required=not proxy_mode)
+    parser.add_argument("--conn", help="connection string", required=not proxy_mode)
+    parser.add_argument("--vehicle", help="vehicle type [generic, drone, rover, none]", required=not proxy_mode)
     parser.add_argument("--skip-init", help="skip initialization", required=False,
             const=False, default=True, action="store_const", dest="initialize")
     parser.add_argument("--run-proxy", help="run zmq proxy", required=False,

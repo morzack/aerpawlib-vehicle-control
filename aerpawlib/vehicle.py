@@ -14,12 +14,21 @@ from . import util
 # time to wait when polling for dronekit vehicle state changes
 _POLLING_DELAY = 0.01 # s
 
+class VehicleConstraints:
+    max_velocity: float = None
+    min_velocity: float = None # primarily used for guided
+
+    ardupilot_version: str = None
+
 class DummyVehicle:
     """
     vehicle for things that don't need vehicles :)
 
     hacky lol
     """
+    
+    _constraints = VehicleConstraints()
+    
     def __init__(self, connection_string: str):
         pass
 
@@ -31,12 +40,6 @@ class DummyVehicle:
 
     async def _initialize_postarm(self):
         pass
-
-class VehicleConstraints:
-    max_velocity: float = None
-    min_velocity: float = None # primarily used for guided
-
-    ardupilot_version: str = None
 
 class Vehicle:
     """
