@@ -38,3 +38,25 @@ Here is a step by step guide to running the speed test
  7. After the copter has reached altitude, in the vehicle script terminal press 'Enter' to start the speed test
  8. Monitor the copter's progress from QGround Control with a comm UDP link on port 14570
  9. At each waypoint the copter will adjust its heading to face the next waypoint and wait for a desired speed to be input in the vehicle script terminal.
+
+ #### Test variations
+The following are all of the designed combinations of vehicle config and speed test params to test different aspects of the safety checker and the overall system
+ 1. `geofence_config_copter_test.yaml` + `valid_1.yaml`
+    1. This combination should run the speed test with two valid locations and shouldn't error
+ 2. `geofence_config_copter_test.yaml` + `out_of_fence_start.yaml`
+    1. This combination gives an invalid first waypoint that should trigger the filter to error
+    2. `Invalid waypoint. Waypoint (35.728572845458984,-78.69427490234375) is outside of the geofence. ABORTING!`
+ 3. `geofence_config_copter_test.yaml` + `invalid_second_waypoint.yaml`
+    1. This combination is identical to the one above, except the first location is valid and the script should error once it attempts to move towards the second waypoint.
+    2. `Invalid waypoint. Waypoint (35.728572845458984,-78.69427490234375) is outside of the geofence. ABORTING!`
+ 4. `geofence_config_copter_test.yaml` + `valid_2.yaml`
+    1. This is a combination that shouldn't error. The speed test contains 4 waypoints that circle the animal health building which is excluded from the geofence.
+ 5. `geofence_config_copter_test.yaml` + `invalid_leave_fence.yaml`
+    1. This combination contains a speed test with two waypoints that appear to be valid. However to move between them would result in crossing out of the geofence.
+    2. `Invalid waypoint. Path from (35.7274213,-78.6965512) to waypoint (35.72699737548828,-78.69512176513672) leaves geofence. ABORTING!`
+ 6. `geofence_config_copter_test.yaml` + `invalid_enter_no_go.yaml`
+    1. This combination gives a valid first waypoint but a second waypoint contained within the nogo zone.
+    2. `Invalid waypoint. Waypoint (35.72568893432617,-78.69639587402344) is inside a no-go zone. ABORTING!`
+ 7. `geofence_config_copter_test.yaml` + `invalid_cross_no_go.yaml`
+    1. This combination contains two waypoints that appear to be valid, but to move between them would result in crossing a no go zone.
+    2. `Invalid waypoint. Path from (35.7274223,-78.6965523) to waypoint (35.723670959472656,-78.69671630859375) enters no-go zone. ABORTING!`
