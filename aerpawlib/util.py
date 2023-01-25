@@ -316,7 +316,7 @@ class SafetyChecker:
             if nextLoc.alt < self.min_alt or nextLoc.alt > self.max_alt:
                 return (
                     False,
-                    "Invalid waypoint. Altitude of %s m is not within restrictions!"
+                    "Invalid waypoint. Altitude of %s m is not within restrictions! ABORTING!"
                     % nextLoc.alt,
                 )
 
@@ -337,7 +337,7 @@ class SafetyChecker:
             if inside(nextLoc.lon, nextLoc.lat, zone):
                 return (
                     False,
-                    "Invalid waypoint. Waypoint (%s,%s) is inside a no-go zone."
+                    "Invalid waypoint. Waypoint (%s,%s) is inside a no-go zone. ABORTING!"
                     % (nextLoc.lat, nextLoc.lon)
                 )
         # Makes sure path between two points does not leave geofence
@@ -354,7 +354,7 @@ class SafetyChecker:
             ):
                 return (
                     False,
-                    "Invalid waypoint. Path from (%s,%s) to waypoint (%s,%s) leaves geofence."
+                    "Invalid waypoint. Path from (%s,%s) to waypoint (%s,%s) leaves geofence. ABORTING!"
                     % (curLoc.lat, curLoc.lon, nextLoc.lat, nextLoc.lon)
                 )
 
@@ -373,7 +373,7 @@ class SafetyChecker:
                 ):
                     return (
                         False,
-                        "Invalid waypoint. Path from (%s,%s) to waypoint (%s,%s) enters no-go zone."
+                        "Invalid waypoint. Path from (%s,%s) to waypoint (%s,%s) enters no-go zone. ABORTING!"
                         % (curLoc.lat, curLoc.lon, nextLoc.lat, nextLoc.lon)
                     )
 
