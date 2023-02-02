@@ -20,7 +20,7 @@ SITL_ROVER_ARGS = "-v Rover"
 # all relative paths from E-VM/Profile_software/vehicle_control/aerpawlib/aerpawlib/test
 FILTER_BASE = "../../../../../../C-VM/MAVLink_Filter/"
 # relative paths from FILTER_BASE
-FILTER_EXEC = "filter.py"
+FILTER_EXEC = "filter_safety_checker.py"
 FILTER_ALLOWED_COPTER = "allowed-copter.json"
 FILTER_ALLOWED_ROVER = "allowed-rover.json"
 
