@@ -6,6 +6,7 @@ import json
 import math
 import sys
 import yaml
+import os
 from typing import Dict, List, Tuple
 from pykml import parser
 import dronekit
@@ -265,10 +266,10 @@ class SafetyChecker:
         self.validate_config(config, vehicle_config_filename)
 
         self.vehicle_type = config["vehicle_type"]
-
-        self.include_geofences = [readGeofence(geofence) for geofence in config["include_geofences"]]
+        
+        self.include_geofences = [readGeofence(os.path.join(vehicle_config_filename, geofence)) for  geofence in config["include_geofences"]]
         # No go zones to exclude from the geofenced area
-        self.exclude_geofences = [readGeofence(geofence) for geofence in config["exclude_geofences"]]
+        self.exclude_geofences = [readGeofence(os.path.join(vehicle_config_filename, geofence)) for geofence in config["exclude_geofences"]]
         self.max_speed = config["max_speed"]
         self.min_speed = config["min_speed"]
 
