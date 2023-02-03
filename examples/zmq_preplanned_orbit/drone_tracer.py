@@ -17,10 +17,15 @@ class TracerRunner(ZmqStateMachine):
     async def get_drone_position(self, drone: Drone):
         return drone.position
 
-    @state(name="wait_loop", first=True)
+    @state(name="wait_loop")
     async def state_wait_loop(self, _):
         # used to continually wait for an action to come in
         await asyncio.sleep(0.1)
+        return "wait_loop"
+
+    @state(name="report_ready", first=True)
+    async def state_report_ready(self, _):
+        await self.transition_runner(ZMQ_GROUND, "callback_tracer_ready")
         return "wait_loop"
 
     @state(name="take_off")
