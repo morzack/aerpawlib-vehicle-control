@@ -19,6 +19,9 @@ aerpawlib/test >> pytest
 ## Manual Simulation Tests
 In addition to unit testing the util.py API, this folder contains a variety of parameter files to run the speed test and rover search to validate the behavior of the safety checker in util.py
 
+### run_safety_checker_sitl_tests.py
+The script `run_safety_checker_sitl_tests.py` provides a convenient way to launch the SITL, mavproxy, filter, and optionally a vehicle script automatically. By default the script anticipates to launch the vehicle speed test and requires the parameter `--script_params <speed_test_params_file.yaml>`. However instead you can pass in the parameter `--no_script True` to bypass this and only launch SITL, mavproxy, and the filter. In this case, the script will output a connection address for you to use when manually launching an aerpawlib vehicle script.
+
 ### Speed test script tests
 Here is a step by step guide to running the speed test
 1. Make sure your current directory is `/AHN/E-VM/Profile_software/vehicle_control/aerpawlib/aerpawlib/test`

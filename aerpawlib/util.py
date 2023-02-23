@@ -311,7 +311,6 @@ class SafetyChecker:
         Returns a tuple (bool, str)
         (False, <error message>) if the waypoint violates geofence or no-go zone constraints, else (True, "").
         """
-        print(f"Validating {nextLoc}")
 
         # Makes sure altitude of next waypoint is within regulations
         if self.vehicle_type == "copter":
