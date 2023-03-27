@@ -3,6 +3,7 @@ Core logic surrounding the various `Vehicle`s available to aerpawlib user
 scripts
 """
 import asyncio
+from dataclasses import dataclass
 import dronekit
 from pymavlink import mavutil
 import time
@@ -13,12 +14,21 @@ from . import util
 # time to wait when polling for dronekit vehicle state changes
 _POLLING_DELAY = 0.01 # s
 
+class VehicleConstraints:
+    max_velocity: float = None
+    min_velocity: float = None # primarily used for guided
+
+    ardupilot_version: str = None
+
 class DummyVehicle:
     """
     vehicle for things that don't need vehicles :)
 
     hacky lol
     """
+    
+    _constraints = VehicleConstraints()
+    
     def __init__(self, connection_string: str):
         pass
 
@@ -38,6 +48,8 @@ class Vehicle:
     """
     _vehicle: dronekit.Vehicle
     _has_heartbeat: bool
+
+    _constraints: VehicleConstraints
     
     # function used by "verb" functions to check and see if the vehicle can be
     # commanded to move. should be set to a new closure by verb functions to
@@ -59,9 +71,14 @@ class Vehicle:
         self._vehicle.commands.wait_ready() # we need to do this to capture
                                             # things such as the home location
         
+        # # this hack is needed to wait for the autopilot to reply with all needed info for the runner
+        # while self.autopilot_info.major == None: time.sleep(0.5)
+        
         self._has_heartbeat = False
 
         self._should_postarm_init = True
+
+        self._constraints = VehicleConstraints()
         
         # register required listeners after connecting
         def _heartbeat_listener(_, __, value):
@@ -127,6 +144,24 @@ class Vehicle:
     @property
     def heading(self) -> float:
         return self._vehicle.heading
+
+    @property
+    def velocity(self) -> util.VectorNED:
+        return util.VectorNED(*self._vehicle.velocity)
+
+    @property
+    def autopilot_info(self) -> dronekit.Version:
+        return self._vehicle.version
+
+    @property
+    def attitude(self) -> dronekit.Attitude:
+        """
+        attitude of the vehicle, all values in radians
+
+        - pitch/roll are horizon-relative
+        - yaw is world relative (north=0)
+        """
+        return self._vehicle.attitude
     
     # special things
     def done_moving(self) -> bool:
@@ -161,7 +196,7 @@ class Vehicle:
         # the intent of it in the past has been blocking further execution of
         # more vehicle control logic.
         if self._abortable:
-            print("Aborted.")
+            print("[aerpawlib] Aborted.")
             self._abortable = False
             self._aborted = True
 
@@ -244,6 +279,12 @@ class Vehicle:
         The vehicle will maintain this velocity for `duration` seconds, if
         `duration` is provided, otherwise it will automatically maintain the
         specified velocity until another command is sent.
+
+        The vehicle's velocity vector, if it has a magnitude greater than the
+        configured "max_velocity" (configurable in aerpawlib by using a config.yaml
+        file with the --vehicle-config argument, defaults to 5 m/s), will be
+        normalized and rescaled such that the new magnitude is equal to the
+        maximum velocity.
         """
         raise Exception("set_velocity not implemented")
 
@@ -256,6 +297,10 @@ class Vehicle:
             This is not always respected by the autopilot and will not succeed
             on rover type vehicles in simulation.
         """
+        if self._constraints.max_velocity != None:
+            velocity = min(self._constraints.max_velocity, velocity)
+        if self._constraints.min_velocity != None:
+            velocity = max(self._constraints.min_velocity, velocity)
         self._vehicle.groundspeed = velocity
     
     async def _stop(self):
@@ -390,6 +435,9 @@ class Drone(Vehicle):
         
         if not global_relative:
             velocity_vector = velocity_vector.rotate_by_angle(-self.heading)
+
+        if self._constraints.max_velocity != None and velocity_vector.hypot() > self._constraints.max_velocity:
+            velocity_vector = velocity_vector.norm() * self._constraints.max_velocity
 
         msg = self._vehicle.message_factory.set_position_target_global_int_encode(
                 0, 0, 0,                # unused, target sys, component

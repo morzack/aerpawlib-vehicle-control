@@ -44,7 +44,7 @@ python -m aerpawlib --vehicle drone --conn 127.0.0.1:14580 \
 # launch the zmq broker/proxy
 # this is done through an aerpawlib internal tool, which still (for now) requires
 # specifying what script/connection to use. the values provided do not matter
-python -m aerpawlib --run-proxy --script a --conn a --vehicle a
+python -m aerpawlib --run-proxy
 
 # launch ground coordination software
 # params are documented in help function

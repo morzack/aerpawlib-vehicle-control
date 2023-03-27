@@ -37,7 +37,28 @@ class GroundCoordinatorRunner(ZmqStateMachine):
         args = parser.parse_args(args=extra_args)
         self._waypoints = read_from_plan_complete(args.file)
 
-    @state(name="take_off", first=True)
+    _tracer_ready = False
+    _orbiter_ready = False
+
+    @state(name="await_ready", first=True)
+    async def state_await_ready(self, _):
+        if not (self._tracer_ready and self._orbiter_ready):
+            return "await_ready"
+        return "take_off"
+
+    @state(name="callback_tracer_ready")
+    async def callback_tracer_ready(self, _):
+        print("tracer armed and ready")
+        self._tracer_ready = True
+        return "await_ready"
+    
+    @state(name="callback_orbiter_ready")
+    async def callback_orbiter_ready(self, _):
+        print("orbiter armed and ready")
+        self._orbiter_ready = True
+        return "await_ready"
+
+    @state(name="take_off")
     async def state_take_off(self, _):
         # make both drones take off at the same time
         print("taking off")

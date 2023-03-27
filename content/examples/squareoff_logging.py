@@ -39,16 +39,18 @@ import csv
 import datetime
 import time
 from typing import List, TextIO
+import os
 
 from aerpawlib.runner import StateMachine, state, background, timed_state
 from aerpawlib.util import VectorNED
 from aerpawlib.vehicle import Drone, Rover, Vehicle
 
-FLIGHT_ALT = 5          # m
-SQUARE_SIZE = 10        # m
+FLIGHT_ALT = 5  # m
+SQUARE_SIZE = 10  # m
 LOCATION_TOLERANCE = 2  # m -- ~2 is safe in general, use 3 for the rover in SITL
-WAIT_TIME = 5           # s
-LEG_VELOCITY = 3        # m/s
+WAIT_TIME = 5  # s
+LEG_VELOCITY = 5  # m/s
+
 
 def _dump_to_csv(vehicle: Vehicle, line_num: int, writer):
     pos = vehicle.position
@@ -59,10 +61,18 @@ def _dump_to_csv(vehicle: Vehicle, line_num: int, writer):
     fix, num_sat = gps.fix_type, gps.satellites_visible
     if fix < 2:
         lat, lon, alt = -999, -999, -999
-    writer.writerow([line_num, lon, lat, alt, volt, timestamp, fix, num_sat])
+    vel = vehicle.velocity
+    attitude = vehicle.attitude
+    attitude_str = (
+        "(" + ",".join(map(str, [attitude.pitch, attitude.yaw, attitude.roll])) + ")"
+    )
+    writer.writerow(
+        [line_num, lon, lat, alt, attitude_str, vel, volt, timestamp, fix, num_sat]
+    )
+
 
 class SquareOff(StateMachine):
-    _next_sample: float=0
+    _next_sample: float = 0
     _sampling_delay: float
     _cur_line: int
     _csv_writer: object
@@ -71,26 +81,32 @@ class SquareOff(StateMachine):
     def initialize_args(self, extra_args: List[str]):
         # initialize extra arguments as well as any additional variables used by
         # this StateMachine
-        default_file = f"GPS_DATA_{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}.csv"
+        default_file = (
+            f"GPS_DATA_{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')}.csv"
+        )
 
         parser = ArgumentParser()
-        parser.add_argument("--output", help="log output file", required=False,
-                default=default_file)
-        parser.add_argument("--samplerate", help="log sampling rate (Hz)", required=False,
-                default=1)
+        parser.add_argument(
+            "--output", help="log output file", required=False, default=default_file
+        )
+        parser.add_argument(
+            "--samplerate", help="log sampling rate (Hz)", required=False, default=1
+        )
         args = parser.parse_args(args=extra_args)
-    
+
         self._sampling_delay = 1 / args.samplerate
-        self._log_file = open(args.output, 'w+')
+        self._log_file = open(args.output, "w+")
         self._cur_line = sum(1 for _ in self._log_file) + 1
         self._csv_writer = csv.writer(self._log_file)
-    
+
     @background
     async def periodic_dump(self, vehicle: Vehicle):
         # background task that (using a timer) periodically dumps vehicle status
         # into a provided file
         self._next_sample = time.time() + self._sampling_delay
         _dump_to_csv(vehicle, self._cur_line, self._csv_writer)
+        self._log_file.flush()
+        os.fsync(self._log_file)
         self._cur_line += 1
         await asyncio.sleep(self._sampling_delay)
 
@@ -98,7 +114,7 @@ class SquareOff(StateMachine):
         # called by the runner at the end of execution to clean up lingering
         # file objects/related
         self._log_file.close()
-    
+
     _legs = ["leg_north", "leg_west", "leg_south", "leg_east"]
     _current_leg = 0
 
@@ -134,27 +150,28 @@ class SquareOff(StateMachine):
 
     async def command_leg(self, vehicle: Vehicle, dNorth: float, dEast: float):
         # helper function to send a drone or rover to a specific position
-        await vehicle.goto_coordinates(vehicle.position + VectorNED(dNorth, dEast), \
-                tolerance=LOCATION_TOLERANCE)
-    
+        await vehicle.goto_coordinates(
+            vehicle.position + VectorNED(dNorth, dEast), tolerance=LOCATION_TOLERANCE
+        )
+
     @state(name="leg_north")
     async def leg_north(self, vehicle: Vehicle):
         print("heading north")
         await self.command_leg(vehicle, SQUARE_SIZE, 0)
         return "at_position"
-    
+
     @state(name="leg_west")
     async def leg_west(self, vehicle: Vehicle):
         print("heading west")
         await self.command_leg(vehicle, 0, -SQUARE_SIZE)
         return "at_position"
-    
+
     @state(name="leg_south")
     async def leg_south(self, vehicle: Vehicle):
         print("heading south")
         await self.command_leg(vehicle, -SQUARE_SIZE, 0)
         return "at_position"
-    
+
     @state(name="leg_east")
     async def leg_east(self, vehicle: Vehicle):
         print("heading east")

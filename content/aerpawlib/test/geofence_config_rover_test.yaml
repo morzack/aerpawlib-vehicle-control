@@ -1,0 +1,5 @@
+include_geofences: ["include_geofence.kml"]
+exclude_geofences: ["exclude_geofence.kml"] #no go zones
+max_speed: 20
+min_speed: 1
+vehicle_type: "rover" #"copter"

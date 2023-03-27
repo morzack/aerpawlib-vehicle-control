@@ -468,3 +468,20 @@ class GroundCoordinatorRunner(ZmqStateMachine):
         return orbiter_next_pos
     # ...
 ```
+
+## aerpawlib Vehicle Configuration
+
+aerpawlib provides support for adding constraints to vehicles that are checked during runtime.
+The purpose of this is to enable safer characterisation of vehicle behaviour before enabling more dangerous features.
+When launching the aerpawlib runner, a custom vehicle configuration file can be provided by using the `--vehicle-config` command line argument:
+
+```bash
+python -m aerpawlib \
+    --script examples/squareoff_logging \
+    --conn udp:127.0.0.1:14550 \
+    --vehicle drone \
+    --vehicle-config vehicle_configurations/AERPAW_SAM.yaml
+```
+
+There are several example configurations available in the vehicle_configurations folder for existing AERPAW based drones.
+`vehicle_config_exhaustive.yaml` serves as documentation for the various fields, with comments explaining functionality.
