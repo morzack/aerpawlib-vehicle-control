@@ -37,12 +37,13 @@ def serialize_response(request_function: str, result: bool, message: str = ""):
 
 
 def serialize_msg(raw_json):
-    # compress raw_msg with zlib
+    """Compress JSON message using zlib"""
     compressed_msg = zlib.compress(raw_json.encode("utf-8"))
     return compressed_msg
 
 
 def deserialize_msg(compressed_msg):
+    """Decompress JSON message using zlib"""
     raw_msg = zlib.decompress(compressed_msg).decode("utf-8")
     msg = json.loads(raw_msg)
     return msg
@@ -55,22 +56,10 @@ class SafetyCheckerClient:
         self.socket = self.context.socket(zmq.REQ)
         self.socket.connect(f"{addr}:{port}")
 
-        # DELETEME
-        # self.test()
-
-    def test(self):
-        """DELETEME runs a few calls to the server"""
-        print("sending messages")
-        _result = self.checkServerStatus()
-
-        test_coord = Coordinate(35.72835430386487, -78.69778164328247, 30)
-        test_coord2 = Coordinate(35.72835430386487, -78.69778164328247, 25)
-        _result = self.validateWaypointCommand(test_coord, test_coord2)
-        _result = self.validateChangeSpeedCommand(20)
-        _result = self.validateTakeoffCommand(25, 35.72835430386487, -78.69778164328247)
-        _result = self.validateLandingCommand(35.72835430386487, -78.69778164328247)
-
     def sendRequest(self, msg):
+        """Generic function to send a request to the safety checker server
+        Sends the provided json message, then deserializes and decompresses
+        the response from the server."""
         self.socket.send(msg)
         raw_msg = self.socket.recv()
         message = deserialize_msg(raw_msg)
@@ -91,6 +80,11 @@ class SafetyCheckerClient:
         return self.parseResponse(resp)
 
     def validateWaypointCommand(self, curLoc: Coordinate, nextLoc: Coordinate):
+        """
+        Makes sure path from current location to next waypoint stays inside geofence and avoids no-go zones.
+        Returns a tuple (bool, str)
+        (False, <error message>) if the waypoint violates geofence or no-go zone constraints, else (True, "").
+        """
         msg = serialize_request(
             VALIDATE_WAYPOINT_REQ, [curLoc.toJson(), nextLoc.toJson()]
         )
@@ -98,11 +92,19 @@ class SafetyCheckerClient:
         return self.parseResponse(resp)
 
     def validateChangeSpeedCommand(self, newSpeed):
+        """
+        Makes sure the provided newSpeed lies within the configured vehicle constraints
+        Returns (False, <error message>) if the speed violates constraints, else (True, "").
+        """
         msg = serialize_request(VALIDATE_CHANGE_SPEED_REQ, [newSpeed])
         resp = self.sendRequest(msg)
         return self.parseResponse(resp)
 
     def validateTakeoffCommand(self, takeoffAlt, currentLat, currentLon):
+        """
+        Makes sure the takeoff altitude lies within the vehicle constraints
+        Returns (False, <error message>) if the altitude violates constraints, else (True, "").
+        """
         msg = serialize_request(
             VALIDATE_TAKEOFF_REQ, [takeoffAlt, currentLat, currentLon]
         )
@@ -110,6 +112,10 @@ class SafetyCheckerClient:
         return self.parseResponse(resp)
 
     def validateLandingCommand(self, currentLat, currentLon):
+        """
+        Ensure the copter is attempting to land within 5 meters of the takeoff location
+        Returns (False, <error message>) if the coper is not within 5 meters, else (True, "").
+        """
         msg = serialize_request(VALIDATE_LANDING_REQ, [currentLat, currentLon])
         resp = self.sendRequest(msg)
         return self.parseResponse(resp)

@@ -28,6 +28,7 @@ SPEED_TEST_DIR = "../../../../PortableNodeTests/SpeedTest"
 SPEED_TEST = "speed_test"
 
 SAFETY_CHECKER_SCRIPT = "../safetyChecker.py"
+SAFETY_CHECKER_ADDR = "127.0.0.1"
 SAFETY_CHECKER_PORT = 14580
 
 # screen prefix names
@@ -85,7 +86,7 @@ if __name__ == "__main__":
 
     mav_cmd = "mavproxy.py --master=tcp:127.0.0.1:5760 --out udp:127.0.0.1:14570 --out udp:127.0.0.1:14571 --out udp:127.0.0.1:14573"
 
-    filter_cmd = f"python3 {FILTER_BASE}{FILTER_EXEC} --downlink 127.0.0.1:14575 --port 14573 --allowed_messages {FILTER_ALLOWED_MSGS}"
+    filter_cmd = f"python3 {FILTER_BASE}{FILTER_EXEC} --downlink 127.0.0.1:14575 --port 14573 --allowed_messages {FILTER_ALLOWED_MSGS} --safety_checker_port {SAFETY_CHECKER_PORT} --safety_checker_addr {SAFETY_CHECKER_ADDR}"
 
     safety_checker_cmd = f"python3 {SAFETY_CHECKER_SCRIPT} --vehicle_config {args.geofence_params} --port {SAFETY_CHECKER_PORT}"
 
