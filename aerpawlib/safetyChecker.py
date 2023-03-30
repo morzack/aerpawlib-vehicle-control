@@ -77,31 +77,42 @@ class SafetyCheckerClient:
         print(f"Received reply [{message}]")
         return message
 
+    def parseResponse(self, response):
+        """Parse response from SafetyCheckerServer such as the following sample
+        {'request_function': 'validate_waypoint_req', 'result': True, 'message': ''}
+        returns a tuple containing (result, message)"""
+        return (response["result"], response["message"])
+
     def checkServerStatus(self):
         """Testing function to verify the safety checker server has launched
         with no issues"""
         msg = serialize_request(SERVER_STATUS_REQ, None)
-        return self.sendRequest(msg)
+        resp = self.sendRequest(msg)
+        return self.parseResponse(resp)
 
     def validateWaypointCommand(self, curLoc: Coordinate, nextLoc: Coordinate):
         msg = serialize_request(
             VALIDATE_WAYPOINT_REQ, [curLoc.toJson(), nextLoc.toJson()]
         )
-        return self.sendRequest(msg)
+        resp = self.sendRequest(msg)
+        return self.parseResponse(resp)
 
     def validateChangeSpeedCommand(self, newSpeed):
         msg = serialize_request(VALIDATE_CHANGE_SPEED_REQ, [newSpeed])
-        return self.sendRequest(msg)
+        resp = self.sendRequest(msg)
+        return self.parseResponse(resp)
 
     def validateTakeoffCommand(self, takeoffAlt, currentLat, currentLon):
         msg = serialize_request(
             VALIDATE_TAKEOFF_REQ, [takeoffAlt, currentLat, currentLon]
         )
-        return self.sendRequest(msg)
+        resp = self.sendRequest(msg)
+        return self.parseResponse(resp)
 
     def validateLandingCommand(self, currentLat, currentLon):
         msg = serialize_request(VALIDATE_LANDING_REQ, [currentLat, currentLon])
-        return self.sendRequest(msg)
+        resp = self.sendRequest(msg)
+        return self.parseResponse(resp)
 
 
 class SafetyCheckerServer:

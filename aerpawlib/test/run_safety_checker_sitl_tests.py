@@ -24,7 +24,7 @@ FILTER_EXEC = "filter_safety_checker.py"
 FILTER_ALLOWED_COPTER = "allowed-copter.json"
 FILTER_ALLOWED_ROVER = "allowed-rover.json"
 
-SPEED_TEST_DIR = "../../../SpeedTest/"
+SPEED_TEST_DIR = "../../../../PortableNodeTests/SpeedTest"
 SPEED_TEST = "speed_test"
 
 SAFETY_CHECKER_SCRIPT = "../safetyChecker.py"
@@ -110,6 +110,9 @@ if __name__ == "__main__":
     os.system(
         f"screen -L -Logfile screenlog_vehiclescript -S {SCREEN_PREFIX}_{SCREEN_VEHICLE_SCRIPT_PREFIX} -dm bash -c '{script_cmd}'"
     )
+    os.system(
+        f"screen -L -Logfile screenlog_safetychecker -S {SCREEN_PREFIX}_{SCREEN_SAFETY_CHECKER_PREFIX} -dm bash -c '{safety_checker_cmd}'"
+    )
 
     print("LAUNCHED SERVICES ON:")
     launched_services = [
@@ -123,10 +126,10 @@ if __name__ == "__main__":
         print(f"screen -R {SCREEN_PREFIX}_{service}")
 
     print("")
-
     exit_commands = [
         f"screen -S {SCREEN_PREFIX}_{service} -X quit" for service in launched_services
     ]
+    print(exit_commands)
 
     print("press enter to quit:")
     input()
