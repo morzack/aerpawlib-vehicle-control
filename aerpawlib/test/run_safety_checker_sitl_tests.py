@@ -11,7 +11,7 @@ BASE_INSTANCE = 1
 # modify path to local install of ardupilot
 ARDUPILOT_BASE = "../../../../../../../../ardupilot"
 # do not modify - relative path from ARDUPILOT_BASE
-SITL_EXEC= "/Tools/autotest/sim_vehicle.py"
+SITL_EXEC = "/Tools/autotest/sim_vehicle.py"
 
 SITL_BASE_ARGS = "-w --no-mavproxy"
 SITL_COPTER_ARGS = "-v ArduCopter"
@@ -27,11 +27,15 @@ FILTER_ALLOWED_ROVER = "allowed-rover.json"
 SPEED_TEST_DIR = "../../../SpeedTest/"
 SPEED_TEST = "speed_test"
 
+SAFETY_CHECKER_SCRIPT = "../safetyChecker.py"
+SAFETY_CHECKER_PORT = 14580
+
 # screen prefix names
-SCREEN_PREFIX = "SAFETY_CHECKER"
+SCREEN_PREFIX = "AERPAW"
 SCREEN_SITL_PREFIX = "sitl"
 SCREEN_MAV_PREFIX = "mavproxy"
 SCREEN_FILTER_PREFIX = "filter"
+SCREEN_SAFETY_CHECKER_PREFIX = "safety"
 SCREEN_VEHICLE_SCRIPT_PREFIX = "vehicle_script"
 
 
@@ -45,7 +49,6 @@ if __name__ == "__main__":
     parser.add_argument("--script_params", required=True, dest="script_params")
     parser.add_argument("--geofence_params", required=True, dest="geofence_params")
     args, _ = parser.parse_known_args()
-
 
     sitl_instance = 1
 
@@ -75,13 +78,16 @@ if __name__ == "__main__":
         FILTER_ALLOWED_MSGS = f"{FILTER_BASE}{FILTER_ALLOWED_ROVER}"
         SITL_EXEC = f"{ARDUPILOT_BASE}{SITL_EXEC}"
     else:
-        print(f"VEHICLE TYPE {vehicle_type} IN {args.geofence_params} MUST BE EITHER copter OR rover!")
+        print(
+            f"VEHICLE TYPE {vehicle_type} IN {args.geofence_params} MUST BE EITHER copter OR rover!"
+        )
     sitl_cmd = f"{SITL_EXEC} {SITL_ARGS} -l {location_raw} --no-rebuild"
-
 
     mav_cmd = "mavproxy.py --master=tcp:127.0.0.1:5760 --out udp:127.0.0.1:14570 --out udp:127.0.0.1:14571 --out udp:127.0.0.1:14573"
 
-    filter_cmd = f"python3 {FILTER_BASE}{FILTER_EXEC} --downlink 127.0.0.1:14575 --port 14573 --vehicle_config {args.geofence_params} --allowed_messages {FILTER_ALLOWED_MSGS}"
+    filter_cmd = f"python3 {FILTER_BASE}{FILTER_EXEC} --downlink 127.0.0.1:14575 --port 14573 --allowed_messages {FILTER_ALLOWED_MSGS}"
+
+    safety_checker_cmd = f"python3 {SAFETY_CHECKER_SCRIPT} --vehicle_config {args.geofence_params} --port {SAFETY_CHECKER_PORT}"
 
     # we cd to run the vehicle script so we must modify the local script_params path
     script_params_file = os.path.join(os.getcwd(), args.script_params)
@@ -91,14 +97,16 @@ if __name__ == "__main__":
     print(f"MAV CMD: {mav_cmd}")
     print(f"FILTER CMD: {filter_cmd}")
     print(f"SCRIPT CMD: {script_cmd}")
-
+    print(f"SAFETY CHECKER CMD: {safety_checker_cmd}")
 
     # Launch SITL
     # add -L to a screen command to log to file
     os.system(f"screen -S {SCREEN_PREFIX}_{SCREEN_SITL_PREFIX} -dm {sitl_cmd}")
     # print(mav_cmd_with_filter)
     os.system(f"screen -S {SCREEN_PREFIX}_{SCREEN_MAV_PREFIX} -dm {mav_cmd}")
-    os.system(f"screen -L -Logfile screenlog_filter -S {SCREEN_PREFIX}_{SCREEN_FILTER_PREFIX} -dm {filter_cmd}")
+    os.system(
+        f"screen -L -Logfile screenlog_filter -S {SCREEN_PREFIX}_{SCREEN_FILTER_PREFIX} -dm {filter_cmd}"
+    )
     os.system(
         f"screen -L -Logfile screenlog_vehiclescript -S {SCREEN_PREFIX}_{SCREEN_VEHICLE_SCRIPT_PREFIX} -dm bash -c '{script_cmd}'"
     )
@@ -109,6 +117,7 @@ if __name__ == "__main__":
         SCREEN_MAV_PREFIX,
         SCREEN_FILTER_PREFIX,
         SCREEN_VEHICLE_SCRIPT_PREFIX,
+        SCREEN_SAFETY_CHECKER_PREFIX,
     ]
     for service in launched_services:
         print(f"screen -R {SCREEN_PREFIX}_{service}")

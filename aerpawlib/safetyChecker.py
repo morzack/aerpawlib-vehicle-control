@@ -5,6 +5,7 @@ import zmq
 import json
 import zlib
 import pickle
+from argparse import ArgumentParser
 
 from aerpawlib.util import doIntersect, inside, readGeofence, Coordinate
 
@@ -55,7 +56,7 @@ class SafetyCheckerClient:
         self.socket.connect(f"{addr}:{port}")
 
         # DELETEME
-        self.test()
+        # self.test()
 
     def test(self):
         """DELETEME runs a few calls to the server"""
@@ -392,3 +393,21 @@ class SafetyCheckerServer:
             request_function=VALIDATE_LANDING_REQ, result=result, message=message
         )
         return msg
+
+
+if __name__ == "__main__":
+    parser = ArgumentParser(
+        description="safetyChecker - Launch a safety checker server"
+    )
+    parser.add_argument(
+        "--port", help="Port for communication between client and server", required=True
+    )
+    parser.add_argument(
+        "--vehicle_config",
+        help="Path to YAML file containing geofences and vehicle constraints",
+        required=True,
+    )
+    args, _ = parser.parse_known_args()
+
+    # This call blocks
+    server = SafetyCheckerServer(args.vehicle_config, server_port=args.port)
