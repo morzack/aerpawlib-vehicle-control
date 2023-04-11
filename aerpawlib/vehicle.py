@@ -224,7 +224,7 @@ class Vehicle:
                                                 # obviously not optimal *unless* we are
                                                 # certain that a scipt always arms once
         self._vehicle.armed = value
-        while not self._vehicle.armed: await asyncio.sleep(_POLLING_DELAY)
+        while self._vehicle.armed != value: await asyncio.sleep(_POLLING_DELAY)
     
     def _initialize_prearm(self, should_postarm_init):
         while not self._vehicle.system_status in ["STANDBY", "ACTIVE"]: time.sleep(_POLLING_DELAY)
