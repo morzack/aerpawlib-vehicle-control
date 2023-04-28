@@ -284,9 +284,6 @@ class StateMachine(Runner):
         if len(self._initialization_tasks) != 0:
             await asyncio.wait({f(vehicle) for f in self._initialization_tasks})
         
-        print("[aerpawlib] Initialization tasks complete. Waiting for safety pilot to arm")
-        await vehicle._initialize_postarm()
-        
         await self._start_background_tasks(vehicle)
         
         await asyncio.sleep(1) # wait for background tasks to start :p

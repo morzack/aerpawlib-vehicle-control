@@ -188,7 +188,13 @@ class Vehicle:
         finish the current action/movement that it was instructed to do.
 
         Makes use of `Vehicle.done_moving`
+
+        Additionally, will block and request arming if the vehicle isn't yet
+        armed.
         """
+        if not self.armed:
+            await self._initialize_postarm() # also contains logic to wait for arm
+        
         while not self.done_moving(): await asyncio.sleep(_POLLING_DELAY)
 
     def _abort(self):
@@ -239,6 +245,7 @@ class Vehicle:
         if not self._should_postarm_init:
             return
 
+        print("[aerpawlib] Guided command attempted. Waiting for safety pilot to arm")
         while not self._vehicle.is_armable: await asyncio.sleep(_POLLING_DELAY)
         while not self.armed: await asyncio.sleep(_POLLING_DELAY)
 
@@ -465,7 +472,8 @@ class Drone(Vehicle):
 
     async def _stop(self):
         await super()._stop()
-        await self.set_velocity(util.VectorNED(0, 0, 0))
+        if self.armed:
+            await self.set_velocity(util.VectorNED(0, 0, 0))
         self._velocity_loop_active = False
 
 class Rover(Vehicle):
