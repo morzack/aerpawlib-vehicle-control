@@ -2,3 +2,5 @@ FILTER_DATA*
 *.tlog
 *.tlog.raw
 *.parm
+logs/
+screenlog*
