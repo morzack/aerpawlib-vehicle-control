@@ -1,0 +1,4 @@
+FILTER_DATA*
+*.tlog
+*.tlog.raw
+*.parm
