@@ -1,4 +1,5 @@
 # MODIFIED FROM: John Kesler's run_sitl.py
+# intended to run from E-VM/Profile_software/vehicle_control/aerpawlib/aerpawlib/test
 
 from argparse import ArgumentParser
 import uuid

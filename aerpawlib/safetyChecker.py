@@ -54,7 +54,7 @@ class SafetyCheckerClient:
         #  Prepare our context and sockets
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REQ)
-        self.socket.connect(f"{addr}:{port}")
+        self.socket.connect(f"tcp://{addr}:{port}")
 
     def sendRequest(self, msg):
         """Generic function to send a request to the safety checker server
