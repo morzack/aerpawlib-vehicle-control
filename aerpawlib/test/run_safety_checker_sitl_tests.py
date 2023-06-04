@@ -92,38 +92,20 @@ if __name__ == "__main__":
 
     mav_cmd = "mavproxy.py --master=tcp:127.0.0.1:5760 --out udp:127.0.0.1:14570 --out udp:127.0.0.1:14571 --out udp:127.0.0.1:14573"
 
-<<<<<<< HEAD
-    filter_cmd = f"python3 {FILTER_BASE}{FILTER_EXEC} --downlink 127.0.0.1:{VEHICLE_SCRIPT_PORT} --port 14573 --vehicle_config {args.geofence_params} --allowed_messages {FILTER_ALLOWED_MSGS}"
-=======
-    filter_cmd = f"python3 {FILTER_BASE}{FILTER_EXEC} --downlink 127.0.0.1:14575 --port 14573 --allowed_messages {FILTER_ALLOWED_MSGS} --safety_checker_port {SAFETY_CHECKER_PORT} --safety_checker_addr {SAFETY_CHECKER_ADDR}"
+    filter_cmd = f"python3 {FILTER_BASE}{FILTER_EXEC} --downlink 127.0.0.1:{VEHICLE_SCRIPT_PORT} --port 14573 --allowed_messages {FILTER_ALLOWED_MSGS} --safety_checker_port {SAFETY_CHECKER_PORT} --safety_checker_addr {SAFETY_CHECKER_ADDR}"
 
     safety_checker_cmd = f"python3 {SAFETY_CHECKER_SCRIPT} --vehicle_config {args.geofence_params} --port {SAFETY_CHECKER_PORT}"
-
-    # we cd to run the vehicle script so we must modify the local script_params path
-    script_params_file = os.path.join(os.getcwd(), args.script_params)
-    script_cmd = f"cd {SPEED_TEST_DIR} && pwd && python -m aerpawlib --script {SPEED_TEST} --conn udp:127.0.0.1:14575 --vehicle {SCRIPT_VEHICLE_TYPE} --params {script_params_file} --skipoutput"
->>>>>>> nm-safety-checker-client
 
     print(f"SITL CMD: {sitl_cmd}")
     print(f"MAV CMD: {mav_cmd}")
     print(f"FILTER CMD: {filter_cmd}")
-<<<<<<< HEAD
-=======
-    print(f"SCRIPT CMD: {script_cmd}")
     print(f"SAFETY CHECKER CMD: {safety_checker_cmd}")
->>>>>>> nm-safety-checker-client
 
     # Launch SITL
     # add -L to a screen command to log to file
     os.system(f"screen -S {SCREEN_PREFIX}_{SCREEN_SITL_PREFIX} -dm {sitl_cmd}")
     # print(mav_cmd_with_filter)
     os.system(f"screen -S {SCREEN_PREFIX}_{SCREEN_MAV_PREFIX} -dm {mav_cmd}")
-<<<<<<< HEAD
-=======
-    os.system(
-        f"screen -L -Logfile screenlog_filter -S {SCREEN_PREFIX}_{SCREEN_FILTER_PREFIX} -dm {filter_cmd}"
-    )
->>>>>>> nm-safety-checker-client
     os.system(
         f"screen -L -Logfile screenlog_filter -S {SCREEN_PREFIX}_{SCREEN_FILTER_PREFIX} -dm {filter_cmd}"
     )
@@ -135,11 +117,7 @@ if __name__ == "__main__":
         SCREEN_SITL_PREFIX,
         SCREEN_MAV_PREFIX,
         SCREEN_FILTER_PREFIX,
-<<<<<<< HEAD
-=======
-        SCREEN_VEHICLE_SCRIPT_PREFIX,
         SCREEN_SAFETY_CHECKER_PREFIX,
->>>>>>> nm-safety-checker-client
     ]
 
     # launch a vehicle script to if desired
@@ -159,19 +137,16 @@ if __name__ == "__main__":
         print(f"screen -R {SCREEN_PREFIX}_{service}")
 
     print("")
-<<<<<<< HEAD
 
     if args.no_script:
         print(
             f"No vehicle script launched. Manually launch with address udp:127.0.0.1:{VEHICLE_SCRIPT_PORT}"
         )
 
-=======
->>>>>>> nm-safety-checker-client
     exit_commands = [
         f"screen -S {SCREEN_PREFIX}_{service} -X quit" for service in launched_services
     ]
-    print(exit_commands)
+    # print(exit_commands)
 
     print("press enter to quit:")
     input()
