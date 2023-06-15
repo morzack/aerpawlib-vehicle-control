@@ -216,10 +216,11 @@ class PreplannedTrajectory(StateMachine):
         # go to next waypoint
         coords = Coordinate(*waypoint["pos"])
         target_speed = waypoint["speed"]
-        await vehicle.set_groundspeed(target_speed)
         in_background(
             vehicle.goto_coordinates(coords, target_heading=self._default_heading)
         )
+        await asyncio.sleep(0.5) # TODO to deal with MAV_CMD_DO_CHANGE_SPEED race condition -- needs field testing!
+        await vehicle.set_groundspeed(target_speed)
         return "in_transit"
 
     @state(name="in_transit")
