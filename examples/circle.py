@@ -74,8 +74,8 @@ class Circle(StateMachine):
         if self._prev_avg_theta == None:
             self._prev_avg_theta = avg_theta
 
-        if self._point_to_center and drone._ready_to_move(drone):
-            in_background(drone.set_heading(math.degrees(avg_theta)+180))
+        if self._point_to_center:
+            await drone.set_heading(math.degrees(-avg_theta)-90, blocking=False)
         
         # this condition fires when going from 3.14 rad -> -3.14 rad
         if self._prev_avg_theta > 0 and avg_theta < 0:

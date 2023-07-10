@@ -3,6 +3,7 @@ Core logic surrounding the various `Vehicle`s available to aerpawlib user
 scripts
 """
 import asyncio
+import math
 from dataclasses import dataclass
 import dronekit
 from pymavlink import mavutil
@@ -13,6 +14,8 @@ from . import util
 
 # time to wait when polling for dronekit vehicle state changes
 _POLLING_DELAY = 0.01 # s
+
+_YAW_BITMASK = 0b100111111111
 
 class VehicleConstraints:
     max_velocity: float = None
@@ -63,6 +66,11 @@ class Vehicle:
     _aborted: bool=False
 
     _home_location: util.Coordinate
+
+    # _current_heading is used to blend heading and velocity control commands
+    # if a script sets the vehicle's heading, it will override _current_heading and be used
+    # for all future commands that can provide a heading
+    _current_heading: float=None
 
     def __init__(self, connection_string: str):
         self._vehicle = dronekit.connect(connection_string, wait_ready=True)
@@ -327,24 +335,33 @@ class Drone(Vehicle):
     expose to user scripts, which includes basic movement control (going to
     coords, turning, landing).
     """
-    async def set_heading(self, heading: float):
+    async def set_heading(self, heading: float, blocking: bool=True):
         """
         Set the heading of the vehicle (in absolute deg).
         
         To turn a relative # of degrees, you can do something like
         `drone.set_heading(drone.heading + x)`
 
-        NOTE that this function still needs to be tested kind of extensively.
-        Ardupilot has a few internal states that control the heading, and when
-        it's manually set via a CMD_CONDITION_YAW command over mavlink, it's
-        possible for it to either be ignored, be accepted and then ignored, or
-        be accepted, switch the drone's internal turning state to be manually
-        controlled, and then be stuck that way (i.e. the drone won't auto-fly
-        in a "straight" direction). Basically, be warned.
+        Pass in `None` to make the drone return to ardupilot's default heading
+        behavior (usually facing the direction of movement)
+
+        If `blocking` is `True`, this will wait for the current movement command
+        to finish before setting the controller's yaw -- in this case, the drone
+        will immediately start turning. If `blocking` is `False`, the new yaw 
+        will only affect future commands that interact with the yaw controller
+        (ex: `set_velocity`)
         """
-        await self.await_ready_to_move()
+        if blocking:
+            await self.await_ready_to_move()
+
+        if heading == None:
+            self._current_heading = None
+            return
 
         heading %= 360
+        self._current_heading = heading
+        if not blocking:
+            return
         
         # NOTE that the system and component below are derived from commands
         # observed in SITL. could be wrong, and it's kind of magic undocumnted stuff.
@@ -446,16 +463,22 @@ class Drone(Vehicle):
         if self._constraints.max_velocity != None and velocity_vector.hypot() > self._constraints.max_velocity:
             velocity_vector = velocity_vector.norm() * self._constraints.max_velocity
 
+        bitmask = 0b0000111111000111     # bitmask to only set speed
+        yaw = 0
+        if self._current_heading is not None:
+            bitmask &= _YAW_BITMASK
+            yaw = self._current_heading
+
         msg = self._vehicle.message_factory.set_position_target_global_int_encode(
                 0, 0, 0,                # unused, target sys, component
                 mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
-                0b0000111111000111,     # bitmask to only set speed
+                bitmask,
                 0, 0, 0,                # unused
                 velocity_vector.north,
                 velocity_vector.east,
                 velocity_vector.down,
                 0, 0, 0,                # (unsupported) accel
-                0, 0                    # yaw/rate
+                math.radians(yaw), 0    # yaw/rate
                 )
         
         self._ready_to_move = lambda _: True
