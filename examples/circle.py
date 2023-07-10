@@ -63,6 +63,11 @@ class Circle(StateMachine):
                 perp_vec.north / hypot * CIRCLE_VEL,
                 perp_vec.east / hypot * CIRCLE_VEL)
 
+        # calculate distance from ideal radius for proportional correction
+        radius_err = radius_vec.hypot() - CIRCLE_RAD
+        rad_correct_vec = (-1 * radius_vec) * radius_err * 0.1
+        target_velocity = target_velocity + rad_correct_vec
+
         await drone.set_velocity(target_velocity)
         await asyncio.sleep(0.1)
 
