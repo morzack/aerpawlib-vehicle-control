@@ -8,7 +8,6 @@ setup(
         author_email="jckesle2@ncsu.edu",
         packages=["aerpawlib"],
         install_requires=[
-            "asyncio",
             "dronekit",
             "pymavlink",
             "pyserial",
