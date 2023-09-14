@@ -78,7 +78,11 @@ class PreplannedTrajectory(StateMachine):
             "--output", help="log output file", required=False, default=default_file
         )
         parser.add_argument(
-            "--samplerate", help="log sampling rate (Hz)", required=False, default=1
+            "--samplerate",
+            help="log sampling rate (Hz)",
+            required=False,
+            type=int,
+            default=1,
         )
         parser.add_argument(
             "--default-speed",
@@ -219,7 +223,9 @@ class PreplannedTrajectory(StateMachine):
         in_background(
             vehicle.goto_coordinates(coords, target_heading=self._default_heading)
         )
-        await asyncio.sleep(0.5) # TODO to deal with MAV_CMD_DO_CHANGE_SPEED race condition -- needs field testing!
+        await asyncio.sleep(
+            0.5
+        )  # TODO to deal with MAV_CMD_DO_CHANGE_SPEED race condition -- needs field testing!
         await vehicle.set_groundspeed(target_speed)
         return "in_transit"
 
