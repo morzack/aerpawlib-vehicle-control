@@ -81,7 +81,7 @@ class PreplannedTrajectory(StateMachine):
             "--samplerate",
             help="log sampling rate (Hz)",
             required=False,
-            type=int,
+            type=float,
             default=1,
         )
         parser.add_argument(
@@ -91,6 +91,7 @@ class PreplannedTrajectory(StateMachine):
             default=None,
             action="store",
             dest="default_speed",
+            type=float,
         )
         parser.add_argument(
             "--look-at-heading",
@@ -99,6 +100,7 @@ class PreplannedTrajectory(StateMachine):
             default=None,
             action="store",
             dest="default_heading",
+            type=float,
         )
         args = parser.parse_args(args=extra_args)
 

@@ -90,7 +90,7 @@ class SquareOff(StateMachine):
             "--output", help="log output file", required=False, default=default_file
         )
         parser.add_argument(
-            "--samplerate", help="log sampling rate (Hz)", required=False, default=1
+            "--samplerate", help="log sampling rate (Hz)", required=False, default=1, type=float
         )
         args = parser.parse_args(args=extra_args)
 
