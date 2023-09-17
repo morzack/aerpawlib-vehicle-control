@@ -335,7 +335,7 @@ class Drone(Vehicle):
     expose to user scripts, which includes basic movement control (going to
     coords, turning, landing).
     """
-    async def set_heading(self, heading: float, blocking: bool=True):
+    async def set_heading(self, heading: float, blocking: bool=True, lock_in: bool=True):
         """
         Set the heading of the vehicle (in absolute deg).
         
@@ -350,6 +350,15 @@ class Drone(Vehicle):
         will immediately start turning. If `blocking` is `False`, the new yaw 
         will only affect future commands that interact with the yaw controller
         (ex: `set_velocity`)
+
+        If `lock_in` is `True`, subsequent commands that could affect the heading
+        will respect the heading set by this command. If it is false, consider this
+        call to temporarily set the heading.
+
+        An example of this in action is as follows: set_heading is called to lock in
+        a 90 degree heading, followed by a goto command. The goto command will look
+        at the 90 degrees heading set before. If lock_in were false, the goto
+        command would make the drone face the direction of travel.
         """
         if blocking:
             await self.await_ready_to_move()
@@ -359,13 +368,11 @@ class Drone(Vehicle):
             return
 
         heading %= 360
-        self._current_heading = heading
+        if lock_in:
+            self._current_heading = heading
         if not blocking:
             return
         
-        # NOTE that the system and component below are derived from commands
-        # observed in SITL. could be wrong, and it's kind of magic undocumnted stuff.
-        # doing more research.
         msg = self._vehicle.message_factory.command_long_encode(
             0, 0,                                       # target system, component
             mavutil.mavlink.MAV_CMD_CONDITION_YAW,      # command
@@ -437,7 +444,24 @@ class Drone(Vehicle):
         
         await self.await_ready_to_move()
         await self._stop()
-        self._vehicle.simple_goto(coordinates.location())
+
+        heading = float('nan')
+        if self._current_heading != None:
+            heading = self._current_heading
+        else:
+            heading = self.position.bearing(coordinates)
+        await self.set_heading(heading, lock_in=False)
+
+        self._vehicle.message_factory.mission_item_send(
+            0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+            mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+            2, 0, # unused
+            0, # hold time
+            0, # accept radius
+            0, # pass radius
+            heading, # yaw
+            coordinates.lat, coordinates.lon, coordinates.alt
+        )
         
         # TODO in the future we likely want to split alt into a different tolerance
         at_coords = lambda self: \
