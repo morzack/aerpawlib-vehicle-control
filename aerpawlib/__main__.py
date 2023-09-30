@@ -53,6 +53,8 @@ if __name__ == "__main__":
     parser.add_argument("--zmq-proxy-server", help="zmq proxy server addr", required=False, dest="zmq_server_addr")
     parser.add_argument("--vehicle-config", help="vehicle specific configuration file with constraints",
             required=False, default=None, dest="vehicle_config_file")
+    parser.add_argument("--skip-rtl", help="don't rtl and land at the end of an experiment automatically", required=not proxy_mode,
+            const=False, default=True, action="store_const", dest="rtl_at_end")
     args, unknown_args = parser.parse_known_args() # we'll pass other args to the script
 
     if args.run_zmq_proxy:
@@ -115,7 +117,7 @@ if __name__ == "__main__":
     asyncio.run(runner.run(vehicle))
     
     # rtl / land if not already done
-    if vehicle_type in [Drone, Rover] and vehicle.armed:
+    if vehicle_type in [Drone, Rover] and vehicle.armed and args.rtl_at_end:
         print("[aerpawlib] Vehicle still armed after experiment! RTLing and LANDing automatically.")
         asyncio.run(_rtl_cleanup(vehicle))
 
