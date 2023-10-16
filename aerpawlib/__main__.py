@@ -90,17 +90,6 @@ if __name__ == "__main__":
         raise Exception("Please specify a valid vehicle type")
     vehicle = vehicle_type(args.conn)
 
-    # handle loading the config and parsing any needed constraints to be applied
-    if args.vehicle_config_file != None:
-        with open(args.vehicle_config_file, 'r') as f:
-            config_constraints = yaml.safe_load(f)
-            vehicle._constraints = parse_config(config_constraints)
-
-    if vehicle._constraints != None and vehicle._constraints.ardupilot_version != None:
-        ap_info = vehicle.autopilot_info
-        if str(ap_info) != vehicle._constraints.ardupilot_version:
-            raise Exception(f"autopilot version does not match constraint file version {ap_info} != {vehicle._constraints.ardupilot_version}")
-
     # everything after this point is user script dependent. avoid adding extra logic below here
 
     runner.initialize_args(unknown_args)
