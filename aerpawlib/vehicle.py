@@ -17,20 +17,12 @@ _POLLING_DELAY = 0.01 # s
 
 _YAW_BITMASK = 0b100111111111
 
-class VehicleConstraints:
-    max_velocity: float = None
-    min_velocity: float = None # primarily used for guided
-
-    ardupilot_version: str = None
-
 class DummyVehicle:
     """
     vehicle for things that don't need vehicles :)
 
     hacky lol
     """
-    
-    _constraints = VehicleConstraints()
     
     def __init__(self, connection_string: str):
         pass
@@ -52,8 +44,6 @@ class Vehicle:
     _vehicle: dronekit.Vehicle
     _has_heartbeat: bool
 
-    _constraints: VehicleConstraints
-    
     # function used by "verb" functions to check and see if the vehicle can be
     # commanded to move. should be set to a new closure by verb functions to
     # redefine functionality
@@ -86,8 +76,6 @@ class Vehicle:
 
         self._should_postarm_init = True
 
-        self._constraints = VehicleConstraints()
-        
         # register required listeners after connecting
         def _heartbeat_listener(_, __, value):
             if value > 1 and self._has_heartbeat:
@@ -312,10 +300,6 @@ class Vehicle:
             This is not always respected by the autopilot and will not succeed
             on rover type vehicles in simulation.
         """
-        if self._constraints.max_velocity != None:
-            velocity = min(self._constraints.max_velocity, velocity)
-        if self._constraints.min_velocity != None:
-            velocity = max(self._constraints.min_velocity, velocity)
         self._vehicle.groundspeed = velocity
     
     async def _stop(self):
@@ -483,9 +467,6 @@ class Drone(Vehicle):
         
         if not global_relative:
             velocity_vector = velocity_vector.rotate_by_angle(-self.heading)
-
-        if self._constraints.max_velocity != None and velocity_vector.hypot() > self._constraints.max_velocity:
-            velocity_vector = velocity_vector.norm() * self._constraints.max_velocity
 
         bitmask = 0b0000111111000111     # bitmask to only set speed
         yaw = 0
