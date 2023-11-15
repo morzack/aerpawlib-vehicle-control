@@ -47,6 +47,9 @@ class Vehicle:
     # function used by "verb" functions to check and see if the vehicle can be
     # commanded to move. should be set to a new closure by verb functions to
     # redefine functionality
+    # ready_to_move should be treated as a mutex of sorts -- when a vehicle function
+    # is done waiting for it to clear, it should immediately set the function and make
+    # it return false to avoid race conditions
     _ready_to_move: Callable[[object], bool]=lambda _: True
 
     # temp hack to allow for dynamically making the drone abortable or not
@@ -429,12 +432,14 @@ class Drone(Vehicle):
         await self.await_ready_to_move()
         await self._stop()
 
+        self._ready_to_move = lambda self: False
+
         heading = float('nan')
         if self._current_heading != None:
             heading = self._current_heading
         else:
             heading = self.position.bearing(coordinates)
-        await self.set_heading(heading, lock_in=False)
+        await self.set_heading(heading, lock_in=False, blocking=False)
 
         self._vehicle.message_factory.mission_item_send(
             0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
@@ -517,6 +522,8 @@ class Rover(Vehicle):
             tolerance: float=2,
             target_heading: float=None):
         await self.await_ready_to_move()
+        self._ready_to_move = lambda self: False # treat as mutex
+        
         self._vehicle.simple_goto(util.Coordinate(coordinates.lat, coordinates.lon, 0).location())
         
         at_coords = lambda self: \
