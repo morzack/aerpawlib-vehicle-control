@@ -243,6 +243,9 @@ class Coordinate:
             )
         else:
             raise TypeError()
+    
+    def __str__(self):
+        return f"({self.lat},{self.lon},{self.alt})"
 
     def toJson(self):
         """Return a JSON string representing this Coordinate object"""

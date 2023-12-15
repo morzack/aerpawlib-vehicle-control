@@ -41,6 +41,8 @@ if __name__ == "__main__":
     parser.add_argument("--zmq-proxy-server", help="zmq proxy server addr", required=False, dest="zmq_server_addr")
     parser.add_argument("--skip-rtl", help="don't rtl and land at the end of an experiment automatically",
             const=False, default=True, action="store_const", dest="rtl_at_end")
+    parser.add_argument("--debug-dump", help="run aerpawlib's internal debug dump on vehicle object", required=False,
+            const=True, default=False, action="store_const", dest="debug_dump")
     args, unknown_args = parser.parse_known_args() # we'll pass other args to the script
 
     if args.run_zmq_proxy:
@@ -75,6 +77,9 @@ if __name__ == "__main__":
     if vehicle_type is None:
         raise Exception("Please specify a valid vehicle type")
     vehicle = vehicle_type(args.conn)
+    
+    if args.debug_dump and hasattr(vehicle, "_verbose_logging"):
+        vehicle._verbose_logging = True
 
     # everything after this point is user script dependent. avoid adding extra logic below here
 

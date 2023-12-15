@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import dronekit
 from pymavlink import mavutil
 import time
+import threading
 from typing import Callable
 
 from . import util
@@ -15,13 +16,14 @@ from . import util
 # time to wait when polling for dronekit vehicle state changes
 _POLLING_DELAY = 0.01 # s
 
+# time between calls for itnernal update handling
+_INTERNAL_UPDATE_DELAY = 0.1 # s
+
 _YAW_BITMASK = 0b100111111111
 
 class DummyVehicle:
     """
-    vehicle for things that don't need vehicles :)
-
-    hacky lol
+    vehicle class for things that don't need vehicles
     """
     
     def __init__(self, connection_string: str):
@@ -58,12 +60,24 @@ class Vehicle:
     _abortable: bool=False
     _aborted: bool=False
 
-    _home_location: util.Coordinate
+    _home_location: util.Coordinate=None
 
     # _current_heading is used to blend heading and velocity control commands
     # if a script sets the vehicle's heading, it will override _current_heading and be used
     # for all future commands that can provide a heading
     _current_heading: float=None
+
+    _last_nav_controller_output = None
+    _last_mission_item_int = None
+
+    # _verbose_logging is used to indicate if this vehicle should automatically dump
+    # its information at a regular rate to a log file (all defined below)
+    # it can be set by a user script *or* by the aerpawlib runner
+    _verbose_logging: bool=False
+    _verbose_logging_file_prefix: str="aerpawlib_vehicle_dump"
+    _verbose_logging_file_writer = None
+    _verbose_logging_last_log_time: float=0
+    _verbose_logging_delay: float=0.1 # s
 
     def __init__(self, connection_string: str):
         self._vehicle = dronekit.connect(connection_string, wait_ready=True)
@@ -93,6 +107,18 @@ class Vehicle:
             #     self._abort()
             return
         self._vehicle.add_attribute_listener("mode", _abort_listener)
+
+        def _nav_controller_listener(_, __, value):
+            self._last_nav_controller_output = value
+        self._vehicle.add_message_listener("NAV_CONTROLLER_OUTPUT", _nav_controller_listener)
+
+        def _mission_item_listener(_, __, value):
+            self._last_mission_item_int = value
+        self._vehicle.add_message_listener("MISSION_ITEM_INT", _mission_item_listener)
+
+        # start separate thread for internal update support (not ideal, but can't think of an asyncio way)
+        t = threading.Thread(target=self._internal_update_loop, args=(), daemon=True)
+        t.start()
 
         # wait for connection
         while not self._has_heartbeat:
@@ -161,6 +187,70 @@ class Vehicle:
         - yaw is world relative (north=0)
         """
         return self._vehicle.attitude
+    
+    def debug_dump(self) -> str:
+        """
+        Dump various properties collected by this vehicle and the underlying dronekit
+        vehicle type to a string for logging/debug purposes.
+
+        Serialization is handled by this function, call it to get an idea of the output
+        format.
+        """
+        # TODO provide a deserialization function in util.py for this output
+        nav_controller_ouptut = (None, None, None, None, None, None, None, None)
+        if self._last_nav_controller_output != None:
+            nav_controller_ouptut = (
+                self._last_nav_controller_output.nav_roll,
+                self._last_nav_controller_output.nav_pitch,
+                self._last_nav_controller_output.nav_bearing,
+                self._last_nav_controller_output.target_bearing,
+                self._last_nav_controller_output.wp_dist,
+                self._last_nav_controller_output.alt_error,
+                self._last_nav_controller_output.aspd_error,
+                self._last_nav_controller_output.xtrack_error,
+            )
+        
+        mission_item_output = (None, None, None, None)
+        if self._last_mission_item_int != None:
+            mission_item_output = (
+                self._last_mission_item_int.frame,
+                self._last_mission_item_int.x,
+                self._last_mission_item_int.y,
+                self._last_mission_item_int.z,
+            )
+
+        props = [
+            time.time_ns(),
+            self.armed,
+            self.attitude,
+            self.autopilot_info,
+            self.battery,
+            self.gps,
+            self.heading,
+            self.home_coords,
+            self.position,
+            self.velocity,
+            self._vehicle.mode,
+            nav_controller_ouptut,
+            mission_item_output,
+        ]
+
+        return ",".join(map(str, props))
+
+    # internal logic
+    def _internal_update_loop(self):
+        while True:
+            self._internal_update()
+            time.sleep(_INTERNAL_UPDATE_DELAY)
+
+    def _internal_update(self):
+        # called regularly at some given frequency by an internal update loop (separate thread)
+        if self._verbose_logging and (self._verbose_logging_last_log_time + self._verbose_logging_delay < time.time()):
+            if self._verbose_logging_file_writer == None:
+                self._verbose_logging_file_writer = open(f"{self._verbose_logging_file_prefix}_{time.time_ns()}.csv", 'w')
+            log_output = self.debug_dump()
+            self._verbose_logging_file_writer.write(f"{log_output}\n")
+            self._verbose_logging_last_log_time = time.time()
     
     # special things
     def done_moving(self) -> bool:
