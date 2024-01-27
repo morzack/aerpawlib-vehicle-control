@@ -174,6 +174,12 @@ class PreplannedTrajectory(StateMachine):
             + ",".join(map(str, [attitude.pitch, attitude.yaw, attitude.roll]))
             + ")"
         )
+
+        # If you ever update this list of parameters logged please also change
+        #  ../../../PostProcessing/log2csv.py    and
+        #  ../../GPSLogger/gps_logger.py
+        # to keep them in sync
+
         writer.writerow(
             [line_num, lon, lat, alt, attitude_str, vel, volt, timestamp, fix, num_sat]
         )
