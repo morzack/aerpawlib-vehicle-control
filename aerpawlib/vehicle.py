@@ -609,7 +609,7 @@ class Rover(Vehicle):
     """
     async def goto_coordinates(self,
             coordinates: util.Coordinate,
-            tolerance: float=2,
+            tolerance: float=3.1,
             target_heading: float=None):
         await self.await_ready_to_move()
         self._ready_to_move = lambda self: False # treat as mutex
