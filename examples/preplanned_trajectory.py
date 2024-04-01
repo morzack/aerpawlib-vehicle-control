@@ -33,6 +33,8 @@ import re
 import csv
 import os
 from typing import List, TextIO
+import base64
+import requests
 
 from aerpawlib.external import ExternalProcess
 from aerpawlib.runner import (
@@ -47,6 +49,7 @@ from aerpawlib.runner import (
 from aerpawlib.util import Coordinate, Waypoint, read_from_plan_complete
 from aerpawlib.vehicle import Drone, Rover, Vehicle
 
+CVM_ADDRESS = "192.168.32.25"
 
 class PreplannedTrajectory(StateMachine):
     _waypoints = []
@@ -152,7 +155,7 @@ class PreplannedTrajectory(StateMachine):
             avg_ping_latency = await self._ping_latency(
                 "127.0.0.1", 5
             )  # ping 127.0.0.1 5 times
-            print(f"Average ping latency: {avg_ping_latency}ms")
+            self.log_to_oeo(f"Average ping latency: {avg_ping_latency}ms")
 
     def _dump_to_csv(self, vehicle: Vehicle, line_num: int, writer):
         """
@@ -198,6 +201,15 @@ class PreplannedTrajectory(StateMachine):
         if self._sampling:
             self._log_file.close()
 
+    def log_to_oeo(self, msg: str, severity: str = "INFO"):
+        if severity not in ["INFO", "WARNING", "ERROR", "CRITICAL"]:
+            raise Exception("severity provided not supported")
+        
+        encoded = base64.urlsafe_b64encode(msg.encode('utf-8'))
+        cvm_addr = CVM_ADDRESS
+        requests.post(f"http://{cvm_addr}:12435/oeo_msg/{severity}/{encoded.decode('utf-8')}")
+        print(msg)
+
     @state(name="take_off", first=True)
     async def take_off(self, vehicle: Vehicle):
         # take off to the alt of the first waypoint
@@ -210,7 +222,7 @@ class PreplannedTrajectory(StateMachine):
 
         if isinstance(vehicle, Drone):
             takeoff_alt = self._waypoints[self._current_waypoint]["pos"][2]
-            print(f"Taking off to {takeoff_alt}m")
+            self.log_to_oeo(f"Taking off to {takeoff_alt}m")
             await vehicle.takeoff(takeoff_alt)
         return "next_waypoint"
 
@@ -220,7 +232,7 @@ class PreplannedTrajectory(StateMachine):
         self._current_waypoint += 1
         if self._current_waypoint >= len(self._waypoints):
             return "rtl"
-        print(f"Waypoint {self._current_waypoint}")
+        self.log_to_oeo(f"Waypoint {self._current_waypoint}")
         waypoint = self._waypoints[self._current_waypoint]
         if waypoint["command"] == 20:  # RTL encountered, finish routine
             return "rtl"
@@ -246,7 +258,7 @@ class PreplannedTrajectory(StateMachine):
             avg_ping_latency = await self._ping_latency(
                 "127.0.0.1", 5
             )  # ping 127.0.0.1 5 times
-            print(f"Average ping latency: {avg_ping_latency}ms")
+            self.log_to_oeo(f"Average ping latency: {avg_ping_latency}ms")
 
         await vehicle.await_ready_to_move()
         return "at_waypoint"
@@ -267,7 +279,7 @@ class PreplannedTrajectory(StateMachine):
             avg_ping_latency = await self._ping_latency(
                 "127.0.0.1", 5
             )  # ping 127.0.0.1 5 times
-            print(f"Average ping latency: {avg_ping_latency}ms")
+            self.log_to_oeo(f"Average ping latency: {avg_ping_latency}ms")
 
         return "next_waypoint"
 
@@ -282,4 +294,4 @@ class PreplannedTrajectory(StateMachine):
         )
         if isinstance(vehicle, Drone):
             await vehicle.land()
-        print("done!")
+        self.log_to_oeo("done!")
