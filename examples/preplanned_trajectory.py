@@ -207,7 +207,10 @@ class PreplannedTrajectory(StateMachine):
         
         encoded = base64.urlsafe_b64encode(msg.encode('utf-8'))
         cvm_addr = CVM_ADDRESS
-        requests.post(f"http://{cvm_addr}:12435/oeo_msg/{severity}/{encoded.decode('utf-8')}")
+        try:
+            requests.post(f"http://{cvm_addr}:12435/oeo_msg/{severity}/{encoded.decode('utf-8')}")
+        except requests.exceptions.RequestException:
+            print("unable to send following message to OEO:")
         print(msg)
 
     @state(name="take_off", first=True)
