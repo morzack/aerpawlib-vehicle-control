@@ -470,7 +470,7 @@ class Drone(Vehicle):
 
         while not _pointed_at_heading(self): await asyncio.sleep(_POLLING_DELAY)
 
-    async def takeoff(self, target_alt: float, min_alt_tolerance: float=0.95):
+    async def takeoff(self, target_alt: float, min_alt_tolerance: float=0.95, wait_for_throttle: bool=False):
         """
         Make the drone take off to a specific altitude, and blocks until the
         drone has reached that altitude.
@@ -480,15 +480,16 @@ class Drone(Vehicle):
         """
         await self.await_ready_to_move()        
 
-        # TODO the below logic needs to be tested at the field (and likely made less brittle)
-        # wait for sticks to return to center by taking rolling avg (30 frames)
-        rcin_4 = [-999] * 30 # use something obviously out of range
-        def _rcin_4_listener(_, __, message):
-            rcin_4.pop(0)
-            rcin_4.append(message.chan4_raw)
-        self._vehicle.add_message_listener("RC_CHANNELS", _rcin_4_listener)
-        while not 1450 <= (sum(rcin_4) / len(rcin_4)) <= 1550: await asyncio.sleep(_POLLING_DELAY)
-        self._vehicle.remove_message_listener("RC_CHANNELS", _rcin_4_listener)
+        if wait_for_throttle:
+            # TODO the below logic needs to be tested at the field (and likely made less brittle)
+            # wait for sticks to return to center by taking rolling avg (30 frames)
+            rcin_4 = [-999] * 30 # use something obviously out of range
+            def _rcin_4_listener(_, __, message):
+                rcin_4.pop(0)
+                rcin_4.append(message.chan4_raw)
+            self._vehicle.add_message_listener("RC_CHANNELS", _rcin_4_listener)
+            while not 1450 <= (sum(rcin_4) / len(rcin_4)) <= 1550: await asyncio.sleep(_POLLING_DELAY)
+            self._vehicle.remove_message_listener("RC_CHANNELS", _rcin_4_listener)
         
         self._vehicle.simple_takeoff(target_alt)
         
