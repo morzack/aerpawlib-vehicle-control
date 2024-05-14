@@ -32,6 +32,7 @@ import datetime
 import re
 import csv
 import os
+import time
 from typing import List, TextIO
 import base64
 import requests
@@ -208,10 +209,12 @@ class PreplannedTrajectory(StateMachine):
         encoded = base64.urlsafe_b64encode(msg.encode('utf-8'))
         cvm_addr = CVM_ADDRESS
         try:
-            requests.post(f"http://{cvm_addr}:12435/oeo_msg/{severity}/{encoded.decode('utf-8')}")
+            requests.post(f"http://{cvm_addr}:12435/oeo_msg/{severity}/{encoded.decode('utf-8')}", timeout=3)
         except requests.exceptions.RequestException:
             print("unable to send following message to OEO:")
         print(msg)
+
+    _start_time = None
 
     @state(name="take_off", first=True)
     async def take_off(self, vehicle: Vehicle):
@@ -222,6 +225,8 @@ class PreplannedTrajectory(StateMachine):
             default_speed = self._default_leg_speed
 
         self._waypoints = read_from_plan_complete(self._waypoint_fname, default_speed)
+
+        self._start_time = time.time()
 
         if isinstance(vehicle, Drone):
             takeoff_alt = self._waypoints[self._current_waypoint]["pos"][2]
@@ -297,4 +302,10 @@ class PreplannedTrajectory(StateMachine):
         )
         if isinstance(vehicle, Drone):
             await vehicle.land()
+
+        stop_time = time.time()
+        seconds_to_complete = int(stop_time - self._start_time)
+        time_to_complete = f"{(seconds_to_complete // 60):02d}:{(seconds_to_complete % 60):02d}"
+        self.log_to_oeo(f"mission took {time_to_complete} mm:ss")
+
         self.log_to_oeo("done!")
