@@ -16,6 +16,9 @@ from . import util
 # time to wait when polling for dronekit vehicle state changes
 _POLLING_DELAY = 0.01 # s
 
+# time to wait between steps of the arming -> guided -> takeoff sequence
+_ARMING_SEQUENCE_DELAY = 2 # s
+
 # time between calls for itnernal update handling
 _INTERNAL_UPDATE_DELAY = 0.1 # s
 
@@ -338,7 +341,12 @@ class Vehicle:
         while not self._vehicle.is_armable: await asyncio.sleep(_POLLING_DELAY)
         while not self.armed: await asyncio.sleep(_POLLING_DELAY)
 
+        await asyncio.sleep(_ARMING_SEQUENCE_DELAY)
+        
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")
+        
+        await asyncio.sleep(_ARMING_SEQUENCE_DELAY)
+        
         self._abortable = True
         self._home_location = self.position
     
