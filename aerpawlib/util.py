@@ -19,9 +19,6 @@ class VectorNED:
     relative motion). Makes use of NED (north, east, down) scheme.
 
     Units are expressed in meters
-
-    NOTE: Something similar to this may or may not be adopted into dronkit at
-    some point in the future. There are plans on their GH page, at least.
     """
 
     north: float

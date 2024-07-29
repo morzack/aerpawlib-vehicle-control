@@ -12,6 +12,7 @@ import threading
 from typing import Callable
 
 from . import util
+from .aerpaw import AERPAW
 
 # time to wait when polling for dronekit vehicle state changes
 _POLLING_DELAY = 0.01 # s
@@ -82,6 +83,8 @@ class Vehicle:
     _verbose_logging_last_log_time: float=0
     _verbose_logging_delay: float=0.1 # s
 
+    AERPAW_Platform: AERPAW=None
+
     def __init__(self, connection_string: str):
         self._vehicle = dronekit.connect(connection_string, wait_ready=True)
         
@@ -122,6 +125,9 @@ class Vehicle:
         # start separate thread for internal update support (not ideal, but can't think of an asyncio way)
         t = threading.Thread(target=self._internal_update_loop, args=(), daemon=True)
         t.start()
+
+        # initialize connection to AERPAW Platform, if possible
+        self.AERPAW_Platform = AERPAW()
 
         # wait for connection
         while not self._has_heartbeat:
@@ -294,7 +300,7 @@ class Vehicle:
         # the intent of it in the past has been blocking further execution of
         # more vehicle control logic.
         if self._abortable:
-            print("[aerpawlib] Aborted.")
+            self.AERPAW_Platform.log_to_oeo("[aerpawlib] Aborted.")
             self._abortable = False
             self._aborted = True
 
@@ -337,7 +343,7 @@ class Vehicle:
         if not self._should_postarm_init:
             return
 
-        print("[aerpawlib] Guided command attempted. Waiting for safety pilot to arm")
+        self.AERPAW_Platform.log_to_oeo("[aerpawlib] Guided command attempted. Waiting for safety pilot to arm")
         while not self._vehicle.is_armable: await asyncio.sleep(_POLLING_DELAY)
         while not self.armed: await asyncio.sleep(_POLLING_DELAY)
 

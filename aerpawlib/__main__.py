@@ -98,7 +98,7 @@ if __name__ == "__main__":
     
     # rtl / land if not already done
     if vehicle_type in [Drone, Rover] and vehicle.armed and args.rtl_at_end:
-        print("[aerpawlib] Vehicle still armed after experiment! RTLing and LANDing automatically.")
+        vehicle.AERPAW_Platform.log_to_oeo("[aerpawlib] Vehicle still armed after experiment! RTLing and LANDing automatically.")
         asyncio.run(_rtl_cleanup(vehicle))
 
     # clean up
