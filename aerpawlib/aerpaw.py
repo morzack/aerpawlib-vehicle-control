@@ -1,16 +1,16 @@
 """
 Functionality exclusive to the AERPAW platform
 
-An `AERPAW` object is automatically initialized and attached to a `Vehicle` upon
-script initialization, if the runner automatically determines that it is being
-run on the AERPAW platform.
+The AERPAW_Platform singleton will automatically detect if a script is being
+run in an AERPAW experiment, in which case it enables additional AERPAW
+functionality.
 """
 
 import asyncio
 import base64
 import requests
 
-_DEFAULT_CVM_IP=""
+_DEFAULT_CVM_IP="192.168.32.25"
 
 OEO_MSG_SEV_INFO = "INFO"
 OEO_MSG_SEV_WARN = "WARNING"
@@ -24,7 +24,7 @@ class AERPAW:
 
     def __init__(self, cvm_addr=_DEFAULT_CVM_IP):
         self._cvm_addr = cvm_addr
-        self._connected = self.attach_to_aerpaw_platform():
+        self._connected = self.attach_to_aerpaw_platform()
 
     def attach_to_aerpaw_platform(self) -> bool:
         """
@@ -32,7 +32,7 @@ class AERPAW:
         hosting this experiment. Returns bool depending on success.
         """
         try:
-            requests.post(f"http://{cvm_addr}:12435/ping", timeout=1)
+            requests.post(f"http://{self._cvm_addr}:12435/ping", timeout=1)
         except requests.exceptions.RequestException:
             return False
         return True
@@ -50,6 +50,8 @@ class AERPAW:
             raise Exception("severity provided for log_to_oeo not supported")
         encoded = base64.urlsafe_b64encode(msg.encode('utf-8'))
         try:
-            requests.post(f"http://{cvm_addr}:12435/oeo_msg/{severity}/{encoded.decode('utf-8')}", timeout=3)
+            requests.post(f"http://{self._cvm_addr}:12435/oeo_msg/{severity}/{encoded.decode('utf-8')}", timeout=3)
         except requests.exceptions.RequestException:
             print("unable to send previous message to OEO.")
+
+AERPAW_Platform = AERPAW()

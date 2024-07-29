@@ -10,6 +10,7 @@ example:
             --vehicle drone
 """
 
+from .aerpaw import AERPAW_Platform
 from .runner import BasicRunner, StateMachine, Runner, ZmqStateMachine
 from .vehicle import Drone, Rover, Vehicle, DummyVehicle
 from .zmqutil import run_zmq_proxy
@@ -98,7 +99,7 @@ if __name__ == "__main__":
     
     # rtl / land if not already done
     if vehicle_type in [Drone, Rover] and vehicle.armed and args.rtl_at_end:
-        vehicle.AERPAW_Platform.log_to_oeo("[aerpawlib] Vehicle still armed after experiment! RTLing and LANDing automatically.")
+        AERPAW_Platform.log_to_oeo("[aerpawlib] Vehicle still armed after experiment! RTLing and LANDing automatically.")
         asyncio.run(_rtl_cleanup(vehicle))
 
     # clean up
