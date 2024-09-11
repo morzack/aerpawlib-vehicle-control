@@ -107,12 +107,16 @@ class PreplannedTrajectory(StateMachine):
             dest="default_heading",
             type=float,
         )
+        parser.add_argument(
+            "--noupload", help="don't upload the .plan file to the drone for GCS visualization", action="store_true"
+        )
         args = parser.parse_args(args=extra_args)
 
         self._pinging = not args.ping
         self._sampling = args.skipoutput
         self._sampling_delay = 1 / args.samplerate
         self._waypoint_fname = args.file
+        self._no_plan_upload = args.noupload
 
         if args.default_speed != None:
             self._default_leg_speed = args.default_speed
@@ -214,10 +218,13 @@ class PreplannedTrajectory(StateMachine):
         AERPAW_Platform.log_to_oeo(f"Reading .plan file...")
         self._waypoints = read_from_plan_complete(self._waypoint_fname, default_speed)
         
+        if self._no_plan_upload:
+            return
+        
         # Upload the plan file to the drone
-        AERPAW_Platform.log_to_oeo(f"Uploading plan file...")
+        AERPAW_Platform.log_to_oeo(f"Building CommandSequence...")
         current_commands = vehicle._vehicle.commands
-        current_commands.clear()
+
         for waypoint in self._waypoints:
             new_cmd = dk.Command(
                 0,0,0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, 
@@ -226,9 +233,11 @@ class PreplannedTrajectory(StateMachine):
                 waypoint["pos"][0], waypoint["pos"][1], waypoint["pos"][2]
             )
             current_commands.add(new_cmd)
-        
+
+        AERPAW_Platform.log_to_oeo(f"Uploading .plan file...")
         vehicle._vehicle.wait_ready(True, raise_exception=False)
         current_commands.upload()
+
         AERPAW_Platform.log_to_oeo(f".plan file uploaded!")
         
 
