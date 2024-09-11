@@ -48,7 +48,7 @@ from aerpawlib.runner import (
     at_init,
     sleep,
 )
-from aerpawlib.util import Coordinate, Waypoint, read_from_plan_complete
+from aerpawlib.util import Coordinate, VectorNED, Waypoint, read_from_plan_complete
 from aerpawlib.vehicle import Drone, Rover, Vehicle
 import dronekit as dk
 from pymavlink import mavutil
@@ -217,25 +217,40 @@ class PreplannedTrajectory(StateMachine):
 
         AERPAW_Platform.log_to_oeo(f"Reading .plan file...")
         self._waypoints = read_from_plan_complete(self._waypoint_fname, default_speed)
-        
+
         if self._no_plan_upload:
             return
-        
+
         # Upload the plan file to the drone
         AERPAW_Platform.log_to_oeo(f"Building CommandSequence...")
         current_commands = vehicle._vehicle.commands
+        
+        # Wait for the vehicle to be ready (so we can grab the commands)
+        vehicle._vehicle.wait_ready(True, raise_exception=False)
 
-        for waypoint in self._waypoints:
+        # Clear out initial home location value and any builtin commands
+        current_commands._vehicle._wploader.clear()
+        current_commands.clear()        
+
+        # Loop over waypoint list (ignore first 0,0,alt waypoint)
+        for waypoint in self._waypoints[1:]:
+
+            # AERPAW_Platform.log_to_oeo(str(waypoint["pos"]))
+            wp_coord = Coordinate(*waypoint["pos"])
+            
+            # Make a new waypoint command with the coordinates            
             new_cmd = dk.Command(
-                0,0,0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, 
+                0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,  
                 mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
                 0, 0, 0, 0, 0, 0,
-                waypoint["pos"][0], waypoint["pos"][1], waypoint["pos"][2]
+                wp_coord.lat, wp_coord.lon, wp_coord.alt
             )
+
+            # Add the new waypoint to our command list
             current_commands.add(new_cmd)
 
+        # Upload the command list to our drone
         AERPAW_Platform.log_to_oeo(f"Uploading .plan file...")
-        vehicle._vehicle.wait_ready(True, raise_exception=False)
         current_commands.upload()
 
         AERPAW_Platform.log_to_oeo(f".plan file uploaded!")
