@@ -50,6 +50,8 @@ from aerpawlib.runner import (
 )
 from aerpawlib.util import Coordinate, Waypoint, read_from_plan_complete
 from aerpawlib.vehicle import Drone, Rover, Vehicle
+import dronekit as dk
+from pymavlink import mavutil
 
 class PreplannedTrajectory(StateMachine):
     _waypoints = []
@@ -203,16 +205,36 @@ class PreplannedTrajectory(StateMachine):
 
     _start_time = None
 
-    @state(name="take_off", first=True)
-    async def take_off(self, vehicle: Vehicle):
-        # take off to the alt of the first waypoint
-
+    @at_init
+    async def initialize_flight(self, vehicle: Vehicle):
         default_speed = 5 if isinstance(vehicle, Drone) else 1
         if self._default_leg_speed != None:
             default_speed = self._default_leg_speed
 
+        AERPAW_Platform.log_to_oeo(f"Reading .plan file...")
         self._waypoints = read_from_plan_complete(self._waypoint_fname, default_speed)
+        
+        # Upload the plan file to the drone
+        AERPAW_Platform.log_to_oeo(f"Uploading plan file...")
+        current_commands = vehicle._vehicle.commands
+        current_commands.clear()
+        for waypoint in self._waypoints:
+            new_cmd = dk.Command(
+                0,0,0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, 
+                mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+                0, 0, 0, 0, 0, 0,
+                waypoint["pos"][0], waypoint["pos"][1], waypoint["pos"][2]
+            )
+            current_commands.add(new_cmd)
+        
+        vehicle._vehicle.wait_ready(True, raise_exception=False)
+        current_commands.upload()
+        AERPAW_Platform.log_to_oeo(f".plan file uploaded!")
+        
 
+    @state(name="take_off", first=True)
+    async def take_off(self, vehicle: Vehicle):
+        # take off to the alt of the first waypoint
         self._start_time = time.time()
 
         if isinstance(vehicle, Drone):
