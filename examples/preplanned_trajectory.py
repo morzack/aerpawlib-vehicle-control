@@ -207,7 +207,6 @@ class PreplannedTrajectory(StateMachine):
         if self._sampling:
             self._log_file.close()
 
-    _start_time = None
 
     @at_init
     async def initialize_flight(self, vehicle: Vehicle):
@@ -259,8 +258,6 @@ class PreplannedTrajectory(StateMachine):
     @state(name="take_off", first=True)
     async def take_off(self, vehicle: Vehicle):
         # take off to the alt of the first waypoint
-        self._start_time = time.time()
-
         if isinstance(vehicle, Drone):
             takeoff_alt = self._waypoints[self._current_waypoint]["pos"][2]
             AERPAW_Platform.log_to_oeo(f"Taking off to {takeoff_alt}m")
@@ -335,10 +332,5 @@ class PreplannedTrajectory(StateMachine):
         )
         if isinstance(vehicle, Drone):
             await vehicle.land()
-
-        stop_time = time.time()
-        seconds_to_complete = int(stop_time - self._start_time)
-        time_to_complete = f"{(seconds_to_complete // 60):02d}:{(seconds_to_complete % 60):02d}"
-        AERPAW_Platform.log_to_oeo(f"mission took {time_to_complete} mm:ss")
 
         AERPAW_Platform.log_to_oeo("done!")

@@ -355,13 +355,13 @@ class ZmqStateMachine(StateMachine):
         self._zmq_messages_handling = asyncio.Queue()
         self._zmq_received_fields = {} # indexed by [identifier][field]
 
-        print("starting sub")
+        # print("starting sub")
         while self._running:
             message = await socket.recv_pyobj()
             # await self._zmq_messages_handling.put(message)
             if message["identifier"] != self._zmq_identifier:
                 continue
-            print(f"recv {message}")
+            # print(f"recv {message}")
             asyncio.ensure_future(self._zmq_handle_request(vehicle, message))
 
     async def _zmq_handle_request(self, vehicle: Vehicle, message):

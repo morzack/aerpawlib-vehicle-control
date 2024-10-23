@@ -97,6 +97,9 @@ class Vehicle:
 
         self._should_postarm_init = True
 
+        # time at which the vehicle received the first guided command (takeoff/goto)
+        self._mission_start_time = None
+
         # register required listeners after connecting
         def _heartbeat_listener(_, __, value):
             if value > 1 and self._has_heartbeat:
@@ -500,6 +503,9 @@ class Drone(Vehicle):
             while not 1450 <= (sum(rcin_4) / len(rcin_4)) <= 1550: await asyncio.sleep(_POLLING_DELAY)
             self._vehicle.remove_message_listener("RC_CHANNELS", _rcin_4_listener)
         
+        if self._mission_start_time is None:
+            self._mission_start_time = time.time()
+
         self._vehicle.simple_takeoff(target_alt)
         
         taken_off = lambda self: self.position.alt >= target_alt * min_alt_tolerance
@@ -623,6 +629,9 @@ class Rover(Vehicle):
             target_heading: float=None):
         await self.await_ready_to_move()
         self._ready_to_move = lambda self: False # treat as mutex
+        
+        if self._mission_start_time is None:
+            self._mission_start_time = time.time()
         
         self._vehicle.simple_goto(util.Coordinate(coordinates.lat, coordinates.lon, 0).location())
         

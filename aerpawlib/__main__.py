@@ -18,6 +18,7 @@ from .zmqutil import run_zmq_proxy
 import asyncio
 import importlib
 import inspect
+import time
 
 async def _rtl_cleanup(vehicle: Vehicle):
     await vehicle.goto_coordinates(vehicle._home_location)
@@ -44,6 +45,8 @@ if __name__ == "__main__":
             const=False, default=True, action="store_const", dest="rtl_at_end")
     parser.add_argument("--debug-dump", help="run aerpawlib's internal debug dump on vehicle object", required=False,
             const=True, default=False, action="store_const", dest="debug_dump")
+    parser.add_argument("--no-aerpawlib-stdout", help="prevent aerpawlib from printing to stdout", required=False,
+            const=True, default=False, action="store_const", dest="no_stdout")
     args, unknown_args = parser.parse_known_args() # we'll pass other args to the script
 
     if args.run_zmq_proxy:
@@ -82,6 +85,8 @@ if __name__ == "__main__":
     if args.debug_dump and hasattr(vehicle, "_verbose_logging"):
         vehicle._verbose_logging = True
 
+    AERPAW_Platform._no_stdout = args.no_stdout
+
     # everything after this point is user script dependent. avoid adding extra logic below here
 
     runner.initialize_args(unknown_args)
@@ -98,9 +103,15 @@ if __name__ == "__main__":
     asyncio.run(runner.run(vehicle))
     
     # rtl / land if not already done
-    if vehicle_type in [Drone, Rover] and vehicle.armed and args.rtl_at_end:
-        AERPAW_Platform.log_to_oeo("[aerpawlib] Vehicle still armed after experiment! RTLing and LANDing automatically.")
-        asyncio.run(_rtl_cleanup(vehicle))
+    if vehicle_type in [Drone, Rover]:
+        if vehicle.armed and args.rtl_at_end:
+            AERPAW_Platform.log_to_oeo("[aerpawlib] Vehicle still armed after experiment! RTLing and LANDing automatically.")
+            asyncio.run(_rtl_cleanup(vehicle))
+
+        stop_time = time.time()
+        seconds_to_complete = int(stop_time - vehicle._mission_start_time)
+        time_to_complete = f"{(seconds_to_complete // 60):02d}:{(seconds_to_complete % 60):02d}"
+        AERPAW_Platform.log_to_oeo(f"[aerpawlib] Mission took {time_to_complete} mm:ss")
 
     # clean up
     vehicle.close()

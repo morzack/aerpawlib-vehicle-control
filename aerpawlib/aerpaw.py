@@ -29,6 +29,7 @@ class AERPAW:
         self._cvm_addr = cvm_addr
         self._cvm_port = cvm_port
         self._connected = self.attach_to_aerpaw_platform()
+        self._no_stdout = False
 
     def attach_to_aerpaw_platform(self) -> bool:
         """
@@ -44,7 +45,8 @@ class AERPAW:
     def _display_connection_warning(self):
         if self._connection_warning_displayed:
             return
-        print("[aerpawlib] INFO: the user script has attempted to use AERPAW platform functionality without being in the AERPAW environment")
+        if not self._no_stdout:
+            print("[aerpawlib] INFO: the user script has attempted to use AERPAW platform functionality without being in the AERPAW environment")
         self._connection_warning_displayed = True
 
     def log_to_oeo(self, msg: str, severity: str=OEO_MSG_SEV_INFO):
@@ -52,7 +54,8 @@ class AERPAW:
         Send `msg` to the OEO console, if connected. Prints message regardless
         of connection status.
         """
-        print(msg)
+        if not self._no_stdout:
+            print(msg)
         if not self._connected:
             self._display_connection_warning()
             return
@@ -63,7 +66,8 @@ class AERPAW:
         try:
             requests.post(f"http://{self._cvm_addr}:{self._cvm_port}/oeo_msg/{severity}/{encoded.decode('utf-8')}", timeout=3)
         except requests.exceptions.RequestException:
-            print("unable to send previous message to OEO.")
+            if not self._no_stdout:
+                print("unable to send previous message to OEO.")
 
     def _checkpoint_build_request(self, var_type, var_name):
         return f"http://{self._cvm_addr}:{self._cvm_port}/checkpoint/{var_type}/{var_name}"
