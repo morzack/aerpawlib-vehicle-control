@@ -284,9 +284,6 @@ class StateMachine(Runner):
         if len(self._initialization_tasks) != 0:
             await asyncio.wait({f(vehicle) for f in self._initialization_tasks})
         
-        print("[aerpawlib] Initialization tasks complete. Waiting for safety pilot to arm")
-        await vehicle._initialize_postarm()
-        
         await self._start_background_tasks(vehicle)
         
         await asyncio.sleep(1) # wait for background tasks to start :p
@@ -358,13 +355,13 @@ class ZmqStateMachine(StateMachine):
         self._zmq_messages_handling = asyncio.Queue()
         self._zmq_received_fields = {} # indexed by [identifier][field]
 
-        print("starting sub")
+        # print("starting sub")
         while self._running:
             message = await socket.recv_pyobj()
             # await self._zmq_messages_handling.put(message)
             if message["identifier"] != self._zmq_identifier:
                 continue
-            print(f"recv {message}")
+            # print(f"recv {message}")
             asyncio.ensure_future(self._zmq_handle_request(vehicle, message))
 
     async def _zmq_handle_request(self, vehicle: Vehicle, message):

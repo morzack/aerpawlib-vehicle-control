@@ -19,9 +19,6 @@ class VectorNED:
     relative motion). Makes use of NED (north, east, down) scheme.
 
     Units are expressed in meters
-
-    NOTE: Something similar to this may or may not be adopted into dronkit at
-    some point in the future. There are plans on their GH page, at least.
     """
 
     north: float
@@ -243,197 +240,13 @@ class Coordinate:
             )
         else:
             raise TypeError()
-
-
-class SafetyChecker:
-    # valid vehicle types
-    VEHICLE_TYPES = ["rover", "copter"]
-    # parameters required for all vehicle types
-    REQUIRED_PARAMS = [
-        "vehicle_type",
-        "max_speed",
-        "min_speed",
-        "include_geofences",
-        "exclude_geofences",
-    ]
-    # parameters required for copters
-    REQUIRED_COPTER_PARAMS = ["max_alt", "min_alt"]
-
-    def __init__(self, vehicle_config_filename: str):
-        vehicle_config_file = open(vehicle_config_filename, "r")
-        config = yaml.safe_load(vehicle_config_file)
-
-        self.validate_config(config, vehicle_config_filename)
-
-        self.vehicle_type = config["vehicle_type"]
-        
-        (vehicle_config_dir, _) = os.path.split(vehicle_config_filename)
-        self.include_geofences = [readGeofence(os.path.join(vehicle_config_dir, geofence)) for  geofence in config["include_geofences"]]
-        # No go zones to exclude from the geofenced area
-        self.exclude_geofences = [readGeofence(os.path.join(vehicle_config_dir, geofence)) for geofence in config["exclude_geofences"]]
-        self.max_speed = config["max_speed"]
-        self.min_speed = config["min_speed"]
-
-        # Only max altitude for copters
-        if self.vehicle_type == "copter":
-            self.max_alt = config["max_alt"]
-            self.min_alt = config["min_alt"]
-
-    def validate_config(self, config: Dict, vehicle_config_filename: str):
-        """Ensures that the provided config dict contains all necessary parameters.
-        Raises an exception if the config is invalid"""
-        # Check if all required params exist
-        for param in self.REQUIRED_PARAMS:
-            if param not in config:
-                raise Exception(
-                    f"Required parameter {param} not found in {vehicle_config_filename}!"
-                )
-
-        # Ensure the vehicle type is valid
-        if config["vehicle_type"] not in self.VEHICLE_TYPES:
-            raise Exception(
-                f"Vehicle type in {vehicle_config_filename} is invalid! Must be one of {self.VEHICLE_TYPES}"
-            )
-
-        # If the vehicle is a copter ensure copter-specific required params exist
-        if config["vehicle_type"] == "copter":
-            for param in self.REQUIRED_COPTER_PARAMS:
-                if param not in config:
-                    raise Exception(
-                        f"Required copter parameter {param} not found in {vehicle_config_filename}!"
-                    )
-
-    def validateWaypointCommand(
-        self, curLoc: Coordinate, nextLoc: Coordinate
-    ) -> Tuple[bool, str]:
-        """
-        Makes sure path from current location to next waypoint stays inside geofence and avoids no-go zones.
-        Returns a tuple (bool, str)
-        (False, <error message>) if the waypoint violates geofence or no-go zone constraints, else (True, "").
-        """
-        print(f"Validating {nextLoc}")
-
-        # Makes sure altitude of next waypoint is within regulations
-        if self.vehicle_type == "copter":
-            if nextLoc.alt < self.min_alt or nextLoc.alt > self.max_alt:
-                return (
-                    False,
-                    "Invalid waypoint. Altitude of %s m is not within restrictions! ABORTING!"
-                    % nextLoc.alt,
-                )
-
-        # Makes sure next waypoint is inside one of the include geofences
-        inside_geofence = False
-        for geofence in self.include_geofences:
-            if inside(nextLoc.lon, nextLoc.lat, geofence):
-                inside_geofence = True
-                break
-        if inside_geofence == False:
-            return (
-                False,
-                "Invalid waypoint. Waypoint (%s,%s) is outside of the geofence. ABORTING!"
-                % (nextLoc.lat, nextLoc.lon)
-            )
-        # Makes sure next waypoint is not in a no-go zone
-        for zone in self.exclude_geofences:
-            if inside(nextLoc.lon, nextLoc.lat, zone):
-                return (
-                    False,
-                    "Invalid waypoint. Waypoint (%s,%s) is inside a no-go zone. ABORTING!"
-                    % (nextLoc.lat, nextLoc.lon)
-                )
-        # Makes sure path between two points does not leave geofence
-        for i in range(len(geofence) - 1):
-            if doIntersect(
-                geofence[i]["lon"],
-                geofence[i]["lat"],
-                geofence[i + 1]["lon"],
-                geofence[i + 1]["lat"],
-                curLoc.lon,
-                curLoc.lat,
-                nextLoc.lon,
-                nextLoc.lat,
-            ):
-                return (
-                    False,
-                    "Invalid waypoint. Path from (%s,%s) to waypoint (%s,%s) leaves geofence. ABORTING!"
-                    % (curLoc.lat, curLoc.lon, nextLoc.lat, nextLoc.lon)
-                )
-
-        # Makes sure path between two points does not enter no-go zone
-        for zone in self.exclude_geofences:
-            for i in range(len(zone) - 1):
-                if doIntersect(
-                    zone[i]["lon"],
-                    zone[i]["lat"],
-                    zone[i + 1]["lon"],
-                    zone[i + 1]["lat"],
-                    curLoc.lon,
-                    curLoc.lat,
-                    nextLoc.lon,
-                    nextLoc.lat,
-                ):
-                    return (
-                        False,
-                        "Invalid waypoint. Path from (%s,%s) to waypoint (%s,%s) enters no-go zone. ABORTING!"
-                        % (curLoc.lat, curLoc.lon, nextLoc.lat, nextLoc.lon)
-                    )
-
-        # Next waypoint location is valid
-        return (True, "")
-
-    def validateChangeSpeedCommand(self, newSpeed) -> Tuple[bool, str]:
-        """
-        Makes sure the provided newSpeed lies within the configured vehicle constraints
-        Returns (False, <error message>) if the speed violates constraints, else (True, "").
-        """
-        if newSpeed > self.max_speed:
-            return (False, "Invalid speed (%s) greater than maximum (%s)" % (newSpeed, self.max_speed))
-        if newSpeed < self.min_speed:
-            return (False, "Invalid speed (%s) less than minimum (%s)" % (newSpeed, self.min_speed))
-        # New speed is valid
-        return (True, "")
     
+    def __str__(self):
+        return f"({self.lat},{self.lon},{self.alt})"
 
-    def validateTakeoffCommand(self, takeoffAlt, currentLat, currentLon):
-        """
-        Makes sure the takeoff altitude lies within the vehicle constraints
-        Returns (False, <error message>) if the altitude violates constraints, else (True, "").
-        """
-        # Makes sure altitude is within regulations
-        if self.vehicle_type == "copter":
-            if takeoffAlt < self.min_alt or takeoffAlt > self.max_alt:
-                return(False, 'Invalid takeoff altitude of %s m.' % takeoffAlt)
-        # Save takeoff location for validating landing
-        self.takeoff_location = Coordinate(currentLat, currentLon, alt=0)
-        # Takeoff command is valid
-        return (True, "")
-
-    def validateLandingCommand(self, currentLat, currentLon):
-        """
-        Ensure the copter is attempting to land within 5 meters of the takeoff location
-        Returns (False, <error message>) if the coper is not within 5 meters, else (True, "").
-        """
-        # # approximate radius of earth in km
-        # R = 6373.0
-        # # Calculate distance between takeoff and landing
-        # lat1 = radians(currentLat)
-        # lon1 = radians(currentLon)
-        # lat2 = radians(self.takeoff_location[0])
-        # lon2 = radians(self.takeoff_location[1])
-        # dlon = lon2 - lon1
-        # dlat = lat2 - lat1
-        # a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
-        # c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        # distance = R * c * 1000
-        currentLocation = Coordinate(currentLat, currentLon, alt=0)
-        distance = self.takeoff_location.ground_distance(currentLocation)
-
-        if distance > 5:
-            return(False, 'Invalid landing location. Must be within 5 meters of takeoff location. Attempted landing location (%s,%s) is %f meters from takeoff location.' 
-                % (currentLat, currentLon, distance))
-        # Landing command is valid
-        return (True, "")
+    def toJson(self):
+        """Return a JSON string representing this Coordinate object"""
+        return json.dumps(self, default=lambda o: o.__dict__)
 
 
 # TODO make Waypoint use Coordinates
@@ -568,39 +381,48 @@ def inside(lon, lat, geofence):
 
     return inside
 
+
 """
 Intersection tests are performed using algorithm explained at
 https://www.geeksforgeeks.org/check-if-two-given-line-segments-intersect/.
 """
+
+
 def liesOnSegment(px, py, qx, qy, rx, ry):
-    if ( (qx <= max(px, rx)) and (qx >= min(px, rx)) and 
-           (qy <= max(py, ry)) and (qy >= min(py, ry))): 
+    if (
+        (qx <= max(px, rx))
+        and (qx >= min(px, rx))
+        and (qy <= max(py, ry))
+        and (qy >= min(py, ry))
+    ):
         return True
     return False
-    
-def orientation(px, py, qx, qy, rx, ry): 
-    # to find the orientation of an ordered triplet (p,q,r) 
-    # function returns the following values: 
-    # 0 : Colinear points 
-    # 1 : Clockwise points 
-    # 2 : Counterclockwise 
-      
-    # See https://www.geeksforgeeks.org/orientation-3-ordered-points/amp/  
-    # for details of below formula.  
-      
-    val = (float(qy - py) * (rx - qx)) - (float(qx - px) * (ry - qy)) 
-    if (val > 0): 
-          
-        # Clockwise orientation 
+
+
+def orientation(px, py, qx, qy, rx, ry):
+    # to find the orientation of an ordered triplet (p,q,r)
+    # function returns the following values:
+    # 0 : Colinear points
+    # 1 : Clockwise points
+    # 2 : Counterclockwise
+
+    # See https://www.geeksforgeeks.org/orientation-3-ordered-points/amp/
+    # for details of below formula.
+
+    val = (float(qy - py) * (rx - qx)) - (float(qx - px) * (ry - qy))
+    if val > 0:
+
+        # Clockwise orientation
         return 1
-    elif (val < 0): 
-          
-        # Counterclockwise orientation 
+    elif val < 0:
+
+        # Counterclockwise orientation
         return 2
-    else: 
-          
-        # Colinear orientation 
+    else:
+
+        # Colinear orientation
         return 0
+
 
 def doIntersect(px, py, qx, qy, rx, ry, sx, sy):
     """
@@ -611,27 +433,27 @@ def doIntersect(px, py, qx, qy, rx, ry, sx, sy):
     o3 = orientation(rx, ry, sx, sy, px, py)
     o4 = orientation(rx, ry, sx, sy, qx, qy)
 
-    # General case 
-    if ((o1 != o2) and (o3 != o4)): 
+    # General case
+    if (o1 != o2) and (o3 != o4):
         return True
-  
-    # Special Cases 
-  
-    # p1 , q1 and p2 are colinear and p2 lies on segment p1q1 
-    if ((o1 == 0) and liesOnSegment(px, py, rx, ry, qx, qy)): 
+
+    # Special Cases
+
+    # p1 , q1 and p2 are colinear and p2 lies on segment p1q1
+    if (o1 == 0) and liesOnSegment(px, py, rx, ry, qx, qy):
         return True
-  
-    # p1 , q1 and q2 are colinear and q2 lies on segment p1q1 
-    if ((o2 == 0) and liesOnSegment(px, py, sx, sy, qx, qy)): 
+
+    # p1 , q1 and q2 are colinear and q2 lies on segment p1q1
+    if (o2 == 0) and liesOnSegment(px, py, sx, sy, qx, qy):
         return True
-  
-    # p2 , q2 and p1 are colinear and p1 lies on segment p2q2 
-    if ((o3 == 0) and liesOnSegment(rx, ry, px, py, sx, sy)): 
+
+    # p2 , q2 and p1 are colinear and p1 lies on segment p2q2
+    if (o3 == 0) and liesOnSegment(rx, ry, px, py, sx, sy):
         return True
-  
-    # p2 , q2 and q1 are colinear and q1 lies on segment p2q2 
-    if ((o4 == 0) and liesOnSegment(rx, ry, qx, qy, sx, sy)): 
+
+    # p2 , q2 and q1 are colinear and q1 lies on segment p2q2
+    if (o4 == 0) and liesOnSegment(rx, ry, qx, qy, sx, sy):
         return True
-  
-    # If none of the cases 
+
+    # If none of the cases
     return False

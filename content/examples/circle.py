@@ -7,20 +7,29 @@ Usage:
     python -m aerpawlib --conn ... --vehicle ... --script circle
 """
 
+import argparse
 import asyncio
 import math
 
-from aerpawlib.runner import StateMachine, state
+from aerpawlib.runner import StateMachine, state, in_background
 from aerpawlib.util import VectorNED, Coordinate
 from aerpawlib.vehicle import Drone
 
 FLIGHT_ALT = 5      # m
 CIRCLE_RAD = 10     # m
-CIRCLE_VEL = 0.25   # m/s
+CIRCLE_VEL = 1      # m/s
 N_LAPS = 3
 
 class Circle(StateMachine):
     _target_center: Coordinate
+    _point_to_center: bool=False
+
+    def initialize_args(self, extra_args):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--facecenter", help="continually look at center of circle", action="store_false")
+        args = parser.parse_args(args=extra_args)
+
+        self._point_to_center = not args.facecenter
 
     @state(name="start", first=True)
     async def start(self, drone: Drone):
@@ -54,6 +63,11 @@ class Circle(StateMachine):
                 perp_vec.north / hypot * CIRCLE_VEL,
                 perp_vec.east / hypot * CIRCLE_VEL)
 
+        # calculate distance from ideal radius for proportional correction
+        radius_err = radius_vec.hypot() - CIRCLE_RAD
+        rad_correct_vec = (-1 * radius_vec) * radius_err * 0.1
+        target_velocity = target_velocity + rad_correct_vec
+
         await drone.set_velocity(target_velocity)
         await asyncio.sleep(0.1)
 
@@ -64,6 +78,9 @@ class Circle(StateMachine):
         avg_theta = sum(self._previous_thetas) / len(self._previous_thetas)
         if self._prev_avg_theta == None:
             self._prev_avg_theta = avg_theta
+
+        if self._point_to_center:
+            await drone.set_heading(math.degrees(-avg_theta)-90, blocking=False)
         
         # this condition fires when going from 3.14 rad -> -3.14 rad
         if self._prev_avg_theta > 0 and avg_theta < 0:

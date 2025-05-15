@@ -3,31 +3,32 @@ Core logic surrounding the various `Vehicle`s available to aerpawlib user
 scripts
 """
 import asyncio
+import math
 from dataclasses import dataclass
 import dronekit
 from pymavlink import mavutil
 import time
+import threading
 from typing import Callable
 
 from . import util
+from .aerpaw import AERPAW_Platform
 
 # time to wait when polling for dronekit vehicle state changes
 _POLLING_DELAY = 0.01 # s
 
-class VehicleConstraints:
-    max_velocity: float = None
-    min_velocity: float = None # primarily used for guided
+# time to wait between steps of the arming -> guided -> takeoff sequence
+_ARMING_SEQUENCE_DELAY = 2 # s
 
-    ardupilot_version: str = None
+# time between calls for itnernal update handling
+_INTERNAL_UPDATE_DELAY = 0.1 # s
+
+_YAW_BITMASK = 0b100111111111
 
 class DummyVehicle:
     """
-    vehicle for things that don't need vehicles :)
-
-    hacky lol
+    vehicle class for things that don't need vehicles
     """
-    
-    _constraints = VehicleConstraints()
     
     def __init__(self, connection_string: str):
         pass
@@ -49,11 +50,12 @@ class Vehicle:
     _vehicle: dronekit.Vehicle
     _has_heartbeat: bool
 
-    _constraints: VehicleConstraints
-    
     # function used by "verb" functions to check and see if the vehicle can be
     # commanded to move. should be set to a new closure by verb functions to
     # redefine functionality
+    # ready_to_move should be treated as a mutex of sorts -- when a vehicle function
+    # is done waiting for it to clear, it should immediately set the function and make
+    # it return false to avoid race conditions
     _ready_to_move: Callable[[object], bool]=lambda _: True
 
     # temp hack to allow for dynamically making the drone abortable or not
@@ -62,7 +64,24 @@ class Vehicle:
     _abortable: bool=False
     _aborted: bool=False
 
-    _home_location: util.Coordinate
+    _home_location: util.Coordinate=None
+
+    # _current_heading is used to blend heading and velocity control commands
+    # if a script sets the vehicle's heading, it will override _current_heading and be used
+    # for all future commands that can provide a heading
+    _current_heading: float=None
+
+    _last_nav_controller_output = None
+    _last_mission_item_int = None
+
+    # _verbose_logging is used to indicate if this vehicle should automatically dump
+    # its information at a regular rate to a log file (all defined below)
+    # it can be set by a user script *or* by the aerpawlib runner
+    _verbose_logging: bool=False
+    _verbose_logging_file_prefix: str="aerpawlib_vehicle_dump"
+    _verbose_logging_file_writer = None
+    _verbose_logging_last_log_time: float=0
+    _verbose_logging_delay: float=0.1 # s
 
     def __init__(self, connection_string: str):
         self._vehicle = dronekit.connect(connection_string, wait_ready=True)
@@ -78,8 +97,9 @@ class Vehicle:
 
         self._should_postarm_init = True
 
-        self._constraints = VehicleConstraints()
-        
+        # time at which the vehicle received the first guided command (takeoff/goto)
+        self._mission_start_time = None
+
         # register required listeners after connecting
         def _heartbeat_listener(_, __, value):
             if value > 1 and self._has_heartbeat:
@@ -94,6 +114,18 @@ class Vehicle:
             #     self._abort()
             return
         self._vehicle.add_attribute_listener("mode", _abort_listener)
+
+        def _nav_controller_listener(_, __, value):
+            self._last_nav_controller_output = value
+        self._vehicle.add_message_listener("NAV_CONTROLLER_OUTPUT", _nav_controller_listener)
+
+        def _mission_item_listener(_, __, value):
+            self._last_mission_item_int = value
+        self._vehicle.add_message_listener("MISSION_ITEM_INT", _mission_item_listener)
+
+        # start separate thread for internal update support (not ideal, but can't think of an asyncio way)
+        t = threading.Thread(target=self._internal_update_loop, args=(), daemon=True)
+        t.start()
 
         # wait for connection
         while not self._has_heartbeat:
@@ -163,6 +195,70 @@ class Vehicle:
         """
         return self._vehicle.attitude
     
+    def debug_dump(self) -> str:
+        """
+        Dump various properties collected by this vehicle and the underlying dronekit
+        vehicle type to a string for logging/debug purposes.
+
+        Serialization is handled by this function, call it to get an idea of the output
+        format.
+        """
+        # TODO provide a deserialization function in util.py for this output
+        nav_controller_ouptut = (None, None, None, None, None, None, None, None)
+        if self._last_nav_controller_output != None:
+            nav_controller_ouptut = (
+                self._last_nav_controller_output.nav_roll,
+                self._last_nav_controller_output.nav_pitch,
+                self._last_nav_controller_output.nav_bearing,
+                self._last_nav_controller_output.target_bearing,
+                self._last_nav_controller_output.wp_dist,
+                self._last_nav_controller_output.alt_error,
+                self._last_nav_controller_output.aspd_error,
+                self._last_nav_controller_output.xtrack_error,
+            )
+        
+        mission_item_output = (None, None, None, None)
+        if self._last_mission_item_int != None:
+            mission_item_output = (
+                self._last_mission_item_int.frame,
+                self._last_mission_item_int.x,
+                self._last_mission_item_int.y,
+                self._last_mission_item_int.z,
+            )
+
+        props = [
+            time.time_ns(),
+            self.armed,
+            self.attitude,
+            self.autopilot_info,
+            self.battery,
+            self.gps,
+            self.heading,
+            self.home_coords,
+            self.position,
+            self.velocity,
+            self._vehicle.mode,
+            nav_controller_ouptut,
+            mission_item_output,
+        ]
+
+        return ",".join(map(str, props))
+
+    # internal logic
+    def _internal_update_loop(self):
+        while True:
+            self._internal_update()
+            time.sleep(_INTERNAL_UPDATE_DELAY)
+
+    def _internal_update(self):
+        # called regularly at some given frequency by an internal update loop (separate thread)
+        if self._verbose_logging and (self._verbose_logging_last_log_time + self._verbose_logging_delay < time.time()):
+            if self._verbose_logging_file_writer == None:
+                self._verbose_logging_file_writer = open(f"{self._verbose_logging_file_prefix}_{time.time_ns()}.csv", 'w')
+            log_output = self.debug_dump()
+            self._verbose_logging_file_writer.write(f"{log_output}\n")
+            self._verbose_logging_last_log_time = time.time()
+    
     # special things
     def done_moving(self) -> bool:
         """
@@ -188,7 +284,13 @@ class Vehicle:
         finish the current action/movement that it was instructed to do.
 
         Makes use of `Vehicle.done_moving`
+
+        Additionally, will block and request arming if the vehicle isn't yet
+        armed.
         """
+        if not self.armed:
+            await self._initialize_postarm() # also contains logic to wait for arm
+        
         while not self.done_moving(): await asyncio.sleep(_POLLING_DELAY)
 
     def _abort(self):
@@ -196,7 +298,7 @@ class Vehicle:
         # the intent of it in the past has been blocking further execution of
         # more vehicle control logic.
         if self._abortable:
-            print("[aerpawlib] Aborted.")
+            AERPAW_Platform.log_to_oeo("[aerpawlib] Aborted.")
             self._abortable = False
             self._aborted = True
 
@@ -224,7 +326,7 @@ class Vehicle:
                                                 # obviously not optimal *unless* we are
                                                 # certain that a scipt always arms once
         self._vehicle.armed = value
-        while not self._vehicle.armed: await asyncio.sleep(_POLLING_DELAY)
+        while self._vehicle.armed != value: await asyncio.sleep(_POLLING_DELAY)
     
     def _initialize_prearm(self, should_postarm_init):
         while not self._vehicle.system_status in ["STANDBY", "ACTIVE"]: time.sleep(_POLLING_DELAY)
@@ -239,10 +341,16 @@ class Vehicle:
         if not self._should_postarm_init:
             return
 
+        AERPAW_Platform.log_to_oeo("[aerpawlib] Guided command attempted. Waiting for safety pilot to arm")
         while not self._vehicle.is_armable: await asyncio.sleep(_POLLING_DELAY)
         while not self.armed: await asyncio.sleep(_POLLING_DELAY)
 
+        await asyncio.sleep(_ARMING_SEQUENCE_DELAY)
+        
         self._vehicle.mode = dronekit.VehicleMode("GUIDED")
+        
+        await asyncio.sleep(_ARMING_SEQUENCE_DELAY)
+        
         self._abortable = True
         self._home_location = self.position
     
@@ -297,10 +405,6 @@ class Vehicle:
             This is not always respected by the autopilot and will not succeed
             on rover type vehicles in simulation.
         """
-        if self._constraints.max_velocity != None:
-            velocity = min(self._constraints.max_velocity, velocity)
-        if self._constraints.min_velocity != None:
-            velocity = max(self._constraints.min_velocity, velocity)
         self._vehicle.groundspeed = velocity
     
     async def _stop(self):
@@ -320,28 +424,44 @@ class Drone(Vehicle):
     expose to user scripts, which includes basic movement control (going to
     coords, turning, landing).
     """
-    async def set_heading(self, heading: float):
+    async def set_heading(self, heading: float, blocking: bool=True, lock_in: bool=True):
         """
         Set the heading of the vehicle (in absolute deg).
         
         To turn a relative # of degrees, you can do something like
         `drone.set_heading(drone.heading + x)`
 
-        NOTE that this function still needs to be tested kind of extensively.
-        Ardupilot has a few internal states that control the heading, and when
-        it's manually set via a CMD_CONDITION_YAW command over mavlink, it's
-        possible for it to either be ignored, be accepted and then ignored, or
-        be accepted, switch the drone's internal turning state to be manually
-        controlled, and then be stuck that way (i.e. the drone won't auto-fly
-        in a "straight" direction). Basically, be warned.
+        Pass in `None` to make the drone return to ardupilot's default heading
+        behavior (usually facing the direction of movement)
+
+        If `blocking` is `True`, this will wait for the current movement command
+        to finish before setting the controller's yaw -- in this case, the drone
+        will immediately start turning. If `blocking` is `False`, the new yaw 
+        will only affect future commands that interact with the yaw controller
+        (ex: `set_velocity`)
+
+        If `lock_in` is `True`, subsequent commands that could affect the heading
+        will respect the heading set by this command. If it is false, consider this
+        call to temporarily set the heading.
+
+        An example of this in action is as follows: set_heading is called to lock in
+        a 90 degree heading, followed by a goto command. The goto command will look
+        at the 90 degrees heading set before. If lock_in were false, the goto
+        command would make the drone face the direction of travel.
         """
-        await self.await_ready_to_move()
+        if blocking:
+            await self.await_ready_to_move()
+
+        if heading == None:
+            self._current_heading = None
+            return
 
         heading %= 360
+        if lock_in:
+            self._current_heading = heading
+        if not blocking:
+            return
         
-        # NOTE that the system and component below are derived from commands
-        # observed in SITL. could be wrong, and it's kind of magic undocumnted stuff.
-        # doing more research.
         msg = self._vehicle.message_factory.command_long_encode(
             0, 0,                                       # target system, component
             mavutil.mavlink.MAV_CMD_CONDITION_YAW,      # command
@@ -362,7 +482,7 @@ class Drone(Vehicle):
 
         while not _pointed_at_heading(self): await asyncio.sleep(_POLLING_DELAY)
 
-    async def takeoff(self, target_alt: float, min_alt_tolerance: float=0.95):
+    async def takeoff(self, target_alt: float, min_alt_tolerance: float=0.95, wait_for_throttle: bool=False):
         """
         Make the drone take off to a specific altitude, and blocks until the
         drone has reached that altitude.
@@ -372,16 +492,20 @@ class Drone(Vehicle):
         """
         await self.await_ready_to_move()        
 
-        # TODO the below logic needs to be tested at the field (and likely made less brittle)
-        # wait for sticks to return to center by taking rolling avg (30 frames)
-        rcin_4 = [-999] * 30 # use something obviously out of range
-        def _rcin_4_listener(_, __, message):
-            rcin_4.pop(0)
-            rcin_4.append(message.chan4_raw)
-        self._vehicle.add_message_listener("RC_CHANNELS", _rcin_4_listener)
-        while not 1450 <= (sum(rcin_4) / len(rcin_4)) <= 1550: await asyncio.sleep(_POLLING_DELAY)
-        self._vehicle.remove_message_listener("RC_CHANNELS", _rcin_4_listener)
+        if wait_for_throttle:
+            # TODO the below logic needs to be tested at the field (and likely made less brittle)
+            # wait for sticks to return to center by taking rolling avg (30 frames)
+            rcin_4 = [-999] * 30 # use something obviously out of range
+            def _rcin_4_listener(_, __, message):
+                rcin_4.pop(0)
+                rcin_4.append(message.chan4_raw)
+            self._vehicle.add_message_listener("RC_CHANNELS", _rcin_4_listener)
+            while not 1450 <= (sum(rcin_4) / len(rcin_4)) <= 1550: await asyncio.sleep(_POLLING_DELAY)
+            self._vehicle.remove_message_listener("RC_CHANNELS", _rcin_4_listener)
         
+        if self._mission_start_time is None:
+            self._mission_start_time = time.time()
+
         self._vehicle.simple_takeoff(target_alt)
         
         taken_off = lambda self: self.position.alt >= target_alt * min_alt_tolerance
@@ -413,7 +537,26 @@ class Drone(Vehicle):
         
         await self.await_ready_to_move()
         await self._stop()
-        self._vehicle.simple_goto(coordinates.location())
+
+        self._ready_to_move = lambda self: False
+
+        heading = float('nan')
+        if self._current_heading != None:
+            heading = self._current_heading
+        else:
+            heading = self.position.bearing(coordinates)
+        await self.set_heading(heading, lock_in=False, blocking=False)
+
+        self._vehicle.message_factory.mission_item_send(
+            0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+            mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+            2, 0, # unused
+            0, # hold time
+            0, # accept radius
+            0, # pass radius
+            heading, # yaw
+            coordinates.lat, coordinates.lon, coordinates.alt
+        )
         
         # TODO in the future we likely want to split alt into a different tolerance
         at_coords = lambda self: \
@@ -436,19 +579,22 @@ class Drone(Vehicle):
         if not global_relative:
             velocity_vector = velocity_vector.rotate_by_angle(-self.heading)
 
-        if self._constraints.max_velocity != None and velocity_vector.hypot() > self._constraints.max_velocity:
-            velocity_vector = velocity_vector.norm() * self._constraints.max_velocity
+        bitmask = 0b0000111111000111     # bitmask to only set speed
+        yaw = 0
+        if self._current_heading is not None:
+            bitmask &= _YAW_BITMASK
+            yaw = self._current_heading
 
         msg = self._vehicle.message_factory.set_position_target_global_int_encode(
                 0, 0, 0,                # unused, target sys, component
                 mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
-                0b0000111111000111,     # bitmask to only set speed
+                bitmask,
                 0, 0, 0,                # unused
                 velocity_vector.north,
                 velocity_vector.east,
                 velocity_vector.down,
                 0, 0, 0,                # (unsupported) accel
-                0, 0                    # yaw/rate
+                math.radians(yaw), 0    # yaw/rate
                 )
         
         self._ready_to_move = lambda _: True
@@ -465,7 +611,8 @@ class Drone(Vehicle):
 
     async def _stop(self):
         await super()._stop()
-        await self.set_velocity(util.VectorNED(0, 0, 0))
+        if self.armed:
+            await self.set_velocity(util.VectorNED(0, 0, 0))
         self._velocity_loop_active = False
 
 class Rover(Vehicle):
@@ -478,9 +625,14 @@ class Rover(Vehicle):
     """
     async def goto_coordinates(self,
             coordinates: util.Coordinate,
-            tolerance: float=2,
+            tolerance: float=2.1,
             target_heading: float=None):
         await self.await_ready_to_move()
+        self._ready_to_move = lambda self: False # treat as mutex
+        
+        if self._mission_start_time is None:
+            self._mission_start_time = time.time()
+        
         self._vehicle.simple_goto(util.Coordinate(coordinates.lat, coordinates.lon, 0).location())
         
         at_coords = lambda self: \
