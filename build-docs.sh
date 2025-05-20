@@ -3,6 +3,7 @@
 # assumes past installation using pip install -e .
 
 rm -rf docs
-pdoc --html aerpawlib
-mv html/aerpawlib docs
+pdoc -o ./html aerpawlib
+mkdir -p docs
+mv html/* docs
 rmdir html
